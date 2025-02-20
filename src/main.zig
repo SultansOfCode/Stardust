@@ -33,7 +33,13 @@ const ROM: type = struct {
             }
         }
 
-        return ROM{ .data = data, .address = 0, .lines = @intFromFloat(@ceil(@as(f32, @floatFromInt(data.len)) / 16.0)), .symbols = symbols, .loaded = true };
+        return ROM{
+            .data = data,
+            .address = 0,
+            .lines = @intFromFloat(@ceil(@as(f32, @floatFromInt(data.len)) / 16.0)),
+            .symbols = symbols,
+            .loaded = true,
+        };
     }
 
     pub fn deinit(self: *ROM) void {
@@ -52,7 +58,10 @@ const ROM: type = struct {
 var rom: ROM = undefined;
 
 pub fn drawTextCustom(text: [*:0]const u8, x: i32, y: i32, color: rl.Color) void {
-    rl.drawTextEx(font, text, rl.Vector2{ .x = @floatFromInt(x), .y = @floatFromInt(y) }, @floatFromInt(font.baseSize), 1, color);
+    rl.drawTextEx(font, text, rl.Vector2{
+        .x = @floatFromInt(x),
+        .y = @floatFromInt(y),
+    }, @floatFromInt(font.baseSize), 1, color);
 }
 
 pub fn drawFrame() anyerror!void {
@@ -125,7 +134,6 @@ pub fn main() anyerror!u8 {
     defer rl.closeWindow();
 
     font = try rl.loadFontEx("resources/firacode.ttf", FONT_SIZE, null);
-
     defer if (font.glyphCount > 0) rl.unloadFont(font);
 
     if (font.glyphCount == 0) {
