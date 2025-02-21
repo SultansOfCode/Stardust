@@ -1,3 +1,6 @@
+// TODO
+// Change all rl.loadFileData to use Zig equivalents
+
 const std = @import("std");
 const rl = @import("raylib");
 
@@ -16,10 +19,10 @@ const SCREEN_COLUMNS: u31 = 8 + 1 + (BYTES_PER_LINE * 2) + (BYTES_PER_LINE - 1) 
 // Space              ------------------------------------------------------------´   |                |
 // Bytes as char .    ----------------------------------------------------------------´                |
 // Scrollbar          ---------------------------------------------------------------------------------´
-const PAGE_SIZE: u31 = SCREEN_LINES * BYTES_PER_LINE;
-const HEAP_SIZE: u31 = 512;
+const HEAP_SIZE: u31 = 4096;
 
 var HEAP: [HEAP_SIZE]u8 = undefined;
+var fba: std.heap.FixedBufferAllocator = undefined;
 
 var fontWidth: f32 = undefined;
 var fontHeight: f32 = undefined;
@@ -35,15 +38,20 @@ var selectedLine: u31 = 0;
 var headerBuffer: std.ArrayList(u8) = undefined;
 var lineBuffer: std.ArrayList(u8) = undefined;
 
-const ROMError = error{EmptyFile};
+const ROMError: type = error{
+    EmptyFile,
+    SymbolAlreadyReplaced,
+    TypingAlreadyReplaced,
+};
 
 const ROM: type = struct {
     data: []u8,
     lines: u31,
     lastLine: u31,
-    lastPage: u31,
     address: u31,
     symbols: [256]u8,
+    symbolReplacements: ?std.AutoHashMap(u8, u8),
+    typingReplacements: ?std.AutoHashMap(u8, u8),
 
     pub fn init(filename: [:0]const u8) anyerror!ROM {
         const data: []u8 = try rl.loadFileData(filename);
@@ -60,15 +68,70 @@ const ROM: type = struct {
             }
         }
 
-        // const extension: [:0]u8 = try std.mem.Allocator.dupeZ(std.heap.page_allocator, u8, std.fs.path.extension(filename));
+        const extension: []const u8 = std.fs.path.extension(filename);
+        const truncatedName: []const u8 = filename[0 .. filename.len - extension.len];
+        const tableFilename: [:0]u8 = try std.mem.joinZ(fba.allocator(), "", &.{ truncatedName, ".tbl" });
 
-        // if (extension.len > 0) {
-        //     const tableFilename: [*:0]const u8 = rl.textReplace(filename, extension, ".tbl");
+        var symbolReplacements: ?std.AutoHashMap(u8, u8) = null;
+        var typingReplacements: ?std.AutoHashMap(u8, u8) = null;
+        var tableExists: bool = true;
 
-        //     if (rl.fileExists(tableFilename)) {
-        //         try std.io.getStdOut().writer().print("Table file: {s}\n", .{tableFilename});
-        //     }
-        // }
+        _ = std.fs.cwd().openFile(tableFilename, .{}) catch |tableFileAccessError| {
+            tableExists = if (tableFileAccessError == error.FileNotFound) false else true;
+        };
+
+        if (tableExists) {
+            const hexadecimalCharacters: [22]u8 = .{ '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F', 'a', 'b', 'c', 'd', 'e', 'f' };
+
+            symbolReplacements = std.AutoHashMap(u8, u8).init(fba.allocator());
+            typingReplacements = std.AutoHashMap(u8, u8).init(fba.allocator());
+
+            var tableFile: std.fs.File = try std.fs.cwd().openFile(tableFilename, .{});
+            defer tableFile.close();
+
+            var bufferedReader = std.io.bufferedReader(tableFile.reader());
+            var inStream = bufferedReader.reader();
+
+            var buffer: [1024]u8 = undefined;
+
+            while (try inStream.readUntilDelimiterOrEof(&buffer, '\n')) |line| {
+                const trimmedLine = std.mem.trim(u8, line, &.{ '\r', '\n' });
+
+                if (trimmedLine.len != 4) {
+                    continue;
+                }
+
+                if (trimmedLine[2] != '=') {
+                    continue;
+                }
+
+                if (!std.mem.containsAtLeast(u8, &hexadecimalCharacters, 1, &.{trimmedLine[0]})) {
+                    continue;
+                }
+
+                if (!std.mem.containsAtLeast(u8, &hexadecimalCharacters, 1, &.{trimmedLine[1]})) {
+                    continue;
+                }
+
+                const byte = try std.fmt.parseInt(u8, trimmedLine[0..2], 16);
+
+                if (symbolReplacements.?.contains(byte)) {
+                    return ROMError.SymbolAlreadyReplaced;
+                }
+
+                const char = trimmedLine[3];
+
+                if (typingReplacements.?.contains(char)) {
+                    return ROMError.TypingAlreadyReplaced;
+                }
+
+                symbols[byte] = char;
+                symbols[char] = '.';
+
+                try symbolReplacements.?.put(byte, char);
+                try typingReplacements.?.put(char, byte);
+            }
+        }
 
         const lines: u31 = @as(u31, @intCast(try std.math.divCeil(usize, data.len, BYTES_PER_LINE)));
 
@@ -77,8 +140,9 @@ const ROM: type = struct {
             .address = 0,
             .lines = lines,
             .lastLine = lines - 1,
-            .lastPage = @as(u31, @intCast(try std.math.divFloor(usize, data.len - if (@mod(data.len, PAGE_SIZE) == 0) PAGE_SIZE else 0, PAGE_SIZE))),
             .symbols = symbols,
+            .symbolReplacements = symbolReplacements,
+            .typingReplacements = typingReplacements,
         };
     }
 
@@ -88,6 +152,14 @@ const ROM: type = struct {
         }
 
         rl.unloadFileData(self.data);
+
+        if (self.symbolReplacements != null) {
+            self.symbolReplacements.?.deinit();
+        }
+
+        if (self.typingReplacements != null) {
+            self.typingReplacements.?.deinit();
+        }
 
         self.address = 0;
         self.lines = 0;
@@ -210,7 +282,7 @@ pub fn drawFrame() anyerror!void {
 }
 
 pub fn main() anyerror!u8 {
-    var fba: std.heap.FixedBufferAllocator = std.heap.FixedBufferAllocator.init(&HEAP);
+    fba = std.heap.FixedBufferAllocator.init(&HEAP);
 
     headerBuffer = std.ArrayList(u8).init(fba.allocator());
     defer headerBuffer.deinit();
@@ -263,9 +335,6 @@ pub fn main() anyerror!u8 {
         rl.beginDrawing();
         defer rl.endDrawing();
 
-        // const viewTopLine = @divFloor(rom.address, BYTES_PER_LINE);
-        // const viewBottomLine = viewTopLine + SCREEN_LINES - 1;
-
         if (rl.isKeyPressed(rl.KeyboardKey.down) or rl.isKeyPressedRepeat(rl.KeyboardKey.down)) {
             try scrollBy(1, ScrollDirection.down);
         } else if (rl.isKeyPressed(rl.KeyboardKey.up) or rl.isKeyPressedRepeat(rl.KeyboardKey.up)) {
@@ -290,9 +359,9 @@ pub fn main() anyerror!u8 {
             const amount = @as(u31, @intFromFloat(@round(@abs(wheel) * 3)));
 
             if (wheel < 0) {
-                try scrollBy(amount, ScrollDirection.up);
-            } else {
                 try scrollBy(amount, ScrollDirection.down);
+            } else {
+                try scrollBy(amount, ScrollDirection.up);
             }
         }
 
