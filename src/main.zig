@@ -14,12 +14,12 @@ const STYLE_CHARACTER_HIGHLIGHT: rl.Color = rl.Color.white;
 const STYLE_STATUSBAR_BACKGROUND: rl.Color = rl.Color.white;
 const STYLE_STATUSBAR_TEXT: rl.Color = rl.Color.black;
 
-const BYTES_PER_LINE: u8 = 16;
-const FONT_SIZE: u31 = 20;
+const FONT_FILE: [:0]const u8 = "resources/firacode.ttf";
 const FONT_SPACING: u31 = 1;
 const FONT_SPACING_HALF: u31 = @divFloor(FONT_SPACING, 2);
 const LINE_SPACING: u31 = 0;
 const LINE_SPACING_HALF: u31 = @divFloor(LINE_SPACING, 2);
+const BYTES_PER_LINE: u8 = 16;
 const SCREEN_LINES: u31 = 32;
 const SCREEN_COLUMNS: u31 = 8 + 1 + (BYTES_PER_LINE * 2) + (BYTES_PER_LINE - 1) + 1 + BYTES_PER_LINE + 1;
 // Offset             ------^   ^   ^                      ^                      ^   ^                ^
@@ -36,9 +36,11 @@ const SelectedMode: type = enum {
     Hexadecimal,
 };
 
-var HEAP: [HEAP_SIZE]u8 = undefined;
-var fba: std.heap.FixedBufferAllocator = undefined;
+const FONT_SIZE_MIN: u31 = 16;
+const FONT_SIZE_MAX: u31 = 32;
 
+var fontSize: u31 = 20;
+var font: rl.Font = undefined;
 var fontWidth: f32 = undefined;
 var fontHeight: f32 = undefined;
 
@@ -48,7 +50,8 @@ var screenHeight: u31 = undefined;
 var characterWidth: u31 = undefined;
 var lineHeight: u31 = undefined;
 
-var font: rl.Font = undefined;
+var HEAP: [HEAP_SIZE]u8 = undefined;
+var fba: std.heap.FixedBufferAllocator = undefined;
 
 var selectedLine: u31 = 0;
 var selectedColumn: u8 = 0;
@@ -60,6 +63,7 @@ var lineBuffer: std.ArrayList(u8) = undefined;
 
 const ROMError: type = error{
     EmptyFile,
+    EmptyFont,
     SymbolAlreadyReplaced,
     TypingAlreadyReplaced,
 };
@@ -343,6 +347,33 @@ pub fn drawFrame() anyerror!void {
     }
 }
 
+pub fn configureFontAndScreen() anyerror!void {
+    if (font.glyphCount > 0) {
+        rl.unloadFont(font);
+    }
+
+    font = try rl.loadFontEx(FONT_FILE, fontSize, null);
+
+    if (font.glyphCount == 0) {
+        return ROMError.EmptyFont;
+    }
+
+    const fontMeasurements: rl.Vector2 = rl.measureTextEx(font, "K", @floatFromInt(font.baseSize), FONT_SPACING);
+
+    fontWidth = fontMeasurements.x;
+    fontHeight = fontMeasurements.y;
+
+    screenWidth = @as(u31, @intFromFloat(SCREEN_COLUMNS * fontWidth + (SCREEN_COLUMNS - 1) * FONT_SPACING));
+    screenHeight = @as(u31, @intFromFloat((SCREEN_LINES + 2) * fontHeight + (SCREEN_LINES + 2) * LINE_SPACING));
+    // Here it does not take off 1 because there are half line spacing    ^
+    // on top and half at bottom -----------------------------------------´
+
+    characterWidth = @intFromFloat(@round(fontMeasurements.x) + FONT_SPACING);
+    lineHeight = @intFromFloat(@round(fontMeasurements.y) + LINE_SPACING);
+
+    rl.setWindowSize(screenWidth, screenHeight);
+}
+
 pub fn processShortcuts() anyerror!void {
     if (rl.isKeyPressed(rl.KeyboardKey.down) or rl.isKeyPressedRepeat(rl.KeyboardKey.down)) {
         try scrollBy(1, ScrollDirection.down);
@@ -398,18 +429,40 @@ pub fn processShortcuts() anyerror!void {
         } else if (rl.isKeyDown(rl.KeyboardKey.right)) {
             selectedColumn = BYTES_PER_LINE - 1;
             selectedNibble = 0;
+        } else if (rl.isKeyPressed(rl.KeyboardKey.equal)) {
+            fontSize = @min(FONT_SIZE_MAX, fontSize + 1);
+
+            try configureFontAndScreen();
+        } else if (rl.isKeyPressed(rl.KeyboardKey.minus)) {
+            fontSize = @max(fontSize - 1, FONT_SIZE_MIN);
+
+            try configureFontAndScreen();
         }
     }
+}
 
+pub fn processMouse() anyerror!void {
     const wheel: f32 = rl.getMouseWheelMove();
 
     if (wheel != 0.0) {
-        const amount = @as(u31, @intFromFloat(@round(@abs(wheel) * 3)));
+        if (rl.isKeyDown(rl.KeyboardKey.left_control)) {
+            const amount: u31 = @as(u31, @intFromFloat(@abs(wheel)));
 
-        if (wheel < 0) {
-            try scrollBy(amount, ScrollDirection.down);
+            if (wheel < 0) {
+                fontSize = @max(fontSize - amount, FONT_SIZE_MIN);
+            } else {
+                fontSize = @min(FONT_SIZE_MAX, fontSize + amount);
+            }
+
+            try configureFontAndScreen();
         } else {
-            try scrollBy(amount, ScrollDirection.up);
+            const amount: u31 = @as(u31, @intFromFloat(@round(@abs(wheel) * 3)));
+
+            if (wheel < 0) {
+                try scrollBy(amount, ScrollDirection.down);
+            } else {
+                try scrollBy(amount, ScrollDirection.up);
+            }
         }
     }
 }
@@ -438,27 +491,8 @@ pub fn main() anyerror!u8 {
     rl.initWindow(814, 640, "RayxEdigor");
     defer rl.closeWindow();
 
-    font = try rl.loadFontEx("resources/firacode.ttf", FONT_SIZE, null);
+    try configureFontAndScreen();
     defer if (font.glyphCount > 0) rl.unloadFont(font);
-
-    if (font.glyphCount == 0) {
-        return 1;
-    }
-
-    const fontMeasurements: rl.Vector2 = rl.measureTextEx(font, "K", @floatFromInt(font.baseSize), FONT_SPACING);
-
-    fontWidth = fontMeasurements.x;
-    fontHeight = fontMeasurements.y;
-
-    screenWidth = @as(u31, @intFromFloat(SCREEN_COLUMNS * fontWidth + (SCREEN_COLUMNS - 1) * FONT_SPACING));
-    screenHeight = @as(u31, @intFromFloat((SCREEN_LINES + 2) * fontHeight + (SCREEN_LINES + 2) * LINE_SPACING));
-    // Here it does not take off 1 because there are half line spacing    ^
-    // on top and half at bottom -----------------------------------------´
-
-    characterWidth = @intFromFloat(@round(fontMeasurements.x) + FONT_SPACING);
-    lineHeight = @intFromFloat(@round(fontMeasurements.y) + LINE_SPACING);
-
-    rl.setWindowSize(screenWidth, screenHeight);
 
     rom = try ROM.init("resources/pkmngold.gbc");
     defer rom.deinit();
@@ -470,6 +504,7 @@ pub fn main() anyerror!u8 {
         defer rl.endDrawing();
 
         try processShortcuts();
+        try processMouse();
 
         try drawFrame();
     }
