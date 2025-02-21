@@ -1,9 +1,25 @@
 const std = @import("std");
 const rl = @import("raylib");
 
+const BYTES_PER_LINE: u8 = 16;
 const FONT_SIZE: u31 = 20;
+const FONT_SPACING: f32 = 1;
+const FONT_SPACING_HALF: u31 = @divFloor(FONT_SPACING, 2);
+const LINE_SPACING: f32 = 0;
+const LINE_SPACING_HALF: u31 = @divFloor(LINE_SPACING, 2);
 const SCREEN_LINES: u31 = 32;
-const SCREEN_COLUMNS: u31 = 74;
+const SCREEN_COLUMNS: u31 = 8 + 1 + (BYTES_PER_LINE * 2) + (BYTES_PER_LINE - 1) + 1 + BYTES_PER_LINE + 1;
+// Offset             ------^   ^   ^                      ^                      ^   ^                ^
+// Space              ----------´   |                      |                      |   |                |
+// Bytes as hex 00    --------------´                      |                      |   |                |
+// Bytes' spaces      -------------------------------------´                      |   |                |
+// Space              ------------------------------------------------------------´   |                |
+// Bytes as char .    ----------------------------------------------------------------´                |
+// Scrollbar          ---------------------------------------------------------------------------------´
+const PAGE_SIZE: u31 = SCREEN_LINES * BYTES_PER_LINE;
+const HEAP_SIZE: u31 = 512;
+
+var HEAP: [HEAP_SIZE]u8 = undefined;
 
 var fontWidth: f32 = undefined;
 var fontHeight: f32 = undefined;
@@ -16,34 +32,58 @@ var lineHeight: u31 = undefined;
 var font: rl.Font = undefined;
 var selectedLine: u31 = 0;
 
+var headerBuffer: std.ArrayList(u8) = undefined;
+var lineBuffer: std.ArrayList(u8) = undefined;
+
+const ROMError = error{EmptyFile};
+
 const ROM: type = struct {
     data: []u8,
     lines: u31,
+    lastLine: u31,
+    lastPage: u31,
     address: u31,
     symbols: [256]u8,
-    loaded: bool,
 
     pub fn init(filename: [:0]const u8) anyerror!ROM {
         const data: []u8 = try rl.loadFileData(filename);
+
+        if (data.len == 0) {
+            return ROMError.EmptyFile;
+        }
+
         var symbols: [256]u8 = .{'.'} ** 256;
 
         for (0..256) |i| {
-            if ((i >= 'A' and i <= 'Z') or (i >= 'a' and i <= 'z') or (i >= '0' and i <= '9')) {
+            if (i >= 32 and i <= 127) {
                 symbols[i] = @as(u8, @intCast(i));
             }
         }
 
+        // const extension: [:0]u8 = try std.mem.Allocator.dupeZ(std.heap.page_allocator, u8, std.fs.path.extension(filename));
+
+        // if (extension.len > 0) {
+        //     const tableFilename: [*:0]const u8 = rl.textReplace(filename, extension, ".tbl");
+
+        //     if (rl.fileExists(tableFilename)) {
+        //         try std.io.getStdOut().writer().print("Table file: {s}\n", .{tableFilename});
+        //     }
+        // }
+
+        const lines: u31 = @as(u31, @intCast(try std.math.divCeil(usize, data.len, BYTES_PER_LINE)));
+
         return ROM{
             .data = data,
             .address = 0,
-            .lines = @as(u31, @intCast(try std.math.divCeil(usize, data.len, 16))),
+            .lines = lines,
+            .lastLine = lines - 1,
+            .lastPage = @as(u31, @intCast(try std.math.divFloor(usize, data.len - if (@mod(data.len, PAGE_SIZE) == 0) PAGE_SIZE else 0, PAGE_SIZE))),
             .symbols = symbols,
-            .loaded = true,
         };
     }
 
     pub fn deinit(self: *ROM) void {
-        if (!self.loaded) {
+        if (self.data.len == 0) {
             return;
         }
 
@@ -51,8 +91,12 @@ const ROM: type = struct {
 
         self.address = 0;
         self.lines = 0;
-        self.loaded = false;
     }
+};
+
+const ScrollDirection: type = enum {
+    down,
+    up,
 };
 
 var rom: ROM = undefined;
@@ -61,16 +105,46 @@ pub fn drawTextCustom(text: [:0]const u8, x: i32, y: i32, color: rl.Color) void 
     rl.drawTextEx(font, text, rl.Vector2{
         .x = @floatFromInt(x),
         .y = @floatFromInt(y),
-    }, @floatFromInt(font.baseSize), 1, color);
+    }, @floatFromInt(font.baseSize), FONT_SPACING, color);
+}
+
+pub fn scrollBy(amount: u31, direction: ScrollDirection) anyerror!void {
+    if (amount == 0) {
+        return;
+    }
+
+    const viewTopLine: u31 = @divFloor(rom.address, BYTES_PER_LINE);
+    const viewBottomLine: u31 = viewTopLine + SCREEN_LINES - 1;
+
+    var newLine: u31 = undefined;
+
+    if (direction == ScrollDirection.down) {
+        newLine = @min(rom.lastLine, selectedLine + amount);
+    } else if (direction == ScrollDirection.up) {
+        const iSelectedLine: i32 = selectedLine;
+        const iNewLine: i32 = @max(iSelectedLine - amount, 0);
+
+        newLine = @as(u31, @intCast(iNewLine));
+    }
+
+    if (newLine > viewBottomLine) {
+        rom.address = @min((rom.lines - SCREEN_LINES) * BYTES_PER_LINE, rom.address + amount * BYTES_PER_LINE);
+    } else if (newLine < viewTopLine) {
+        const delta: u31 = amount * BYTES_PER_LINE;
+
+        if (rom.address >= delta) {
+            rom.address -= delta;
+        } else {
+            rom.address = 0;
+        }
+    }
+
+    selectedLine = newLine;
 }
 
 pub fn drawFrame() anyerror!void {
-    const viewTopLine: u31 = @divFloor(rom.address, 16);
+    const viewTopLine: u31 = @divFloor(rom.address, BYTES_PER_LINE);
     const viewBottomLine: u31 = viewTopLine + SCREEN_LINES - 1;
-
-    var buffer = std.ArrayList(u8).init(std.heap.page_allocator);
-
-    defer buffer.deinit();
 
     // Clear background
     rl.clearBackground(rl.Color.dark_gray);
@@ -78,15 +152,18 @@ pub fn drawFrame() anyerror!void {
     // Draw top bar
     rl.drawRectangle(0, 0, screenWidth, lineHeight, rl.Color.white);
 
-    drawTextCustom(" Offset  00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F 0123456789ABCDEF", 0, 0, rl.Color.black);
+    drawTextCustom(@ptrCast(headerBuffer.items), FONT_SPACING_HALF, LINE_SPACING_HALF, rl.Color.black);
 
     // Draw status bar
     rl.drawRectangle(0, screenHeight - lineHeight, screenWidth, lineHeight, rl.Color.white);
 
-    try buffer.appendSlice(" Line: ");
-    try buffer.writer().print("{d}/{d} ({d:.1}%)", .{ selectedLine + 1, rom.lines, (@as(f32, @floatFromInt(selectedLine)) + 1.0) * 100.0 / @as(f32, @floatFromInt(rom.lines)) });
+    lineBuffer.clearRetainingCapacity();
 
-    drawTextCustom(@ptrCast(buffer.items), 0, screenHeight - lineHeight, rl.Color.black);
+    try lineBuffer.appendSlice(" Line: ");
+    try lineBuffer.writer().print("{d}/{d} ({d:.2}%)", .{ selectedLine + 1, rom.lines, (@as(f32, @floatFromInt(selectedLine)) + 1.0) * 100.0 / @as(f32, @floatFromInt(rom.lines)) });
+    try lineBuffer.append(0);
+
+    drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, screenHeight - lineHeight + LINE_SPACING_HALF, rl.Color.black);
 
     // Draw selected highlight
     if (selectedLine >= viewTopLine and selectedLine <= viewBottomLine) {
@@ -94,47 +171,65 @@ pub fn drawFrame() anyerror!void {
     }
 
     // Draw contents
-    buffer.clearRetainingCapacity();
-
     for (0..SCREEN_LINES) |i| {
-        const address: u31 = rom.address + 0x10 * @as(u31, @intCast(i));
+        const address: u31 = rom.address + BYTES_PER_LINE * @as(u31, @intCast(i));
         var byteIndex: usize = undefined;
 
-        if (address > rom.data.len) {
+        if (address >= rom.data.len) {
             continue;
         }
 
-        try buffer.writer().print("{X:0>8} ", .{address});
+        lineBuffer.clearRetainingCapacity();
 
-        for (0..16) |j| {
+        try lineBuffer.writer().print("{X:0>8} ", .{address});
+
+        for (0..BYTES_PER_LINE) |j| {
             byteIndex = @as(usize, @intCast(address)) + j;
 
             if (byteIndex < rom.data.len) {
-                try buffer.writer().print("{X:0>2} ", .{rom.data[byteIndex]});
+                try lineBuffer.writer().print("{X:0>2} ", .{rom.data[byteIndex]});
             } else {
-                try buffer.appendSlice("   ");
+                try lineBuffer.appendSlice("   ");
             }
         }
 
-        for (0..16) |j| {
+        for (0..BYTES_PER_LINE) |j| {
             byteIndex = @as(usize, @intCast(address)) + j;
 
             if (byteIndex < rom.data.len) {
-                try buffer.append(rom.symbols[rom.data[byteIndex]]);
+                try lineBuffer.append(rom.symbols[rom.data[byteIndex]]);
             } else {
-                try buffer.append(' ');
+                try lineBuffer.append(' ');
             }
         }
 
-        try buffer.append(0);
+        try lineBuffer.append(0);
 
-        drawTextCustom(@ptrCast(buffer.items), 0, @as(u31, @intCast(i + 1)) * lineHeight, if (viewTopLine + @as(u31, @intCast(i)) == selectedLine) rl.Color.black else rl.Color.light_gray);
-
-        buffer.clearRetainingCapacity();
+        drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, @as(u31, @intCast(i + 1)) * lineHeight + LINE_SPACING_HALF, if (viewTopLine + @as(u31, @intCast(i)) == selectedLine) rl.Color.black else rl.Color.light_gray);
     }
 }
 
 pub fn main() anyerror!u8 {
+    var fba: std.heap.FixedBufferAllocator = std.heap.FixedBufferAllocator.init(&HEAP);
+
+    headerBuffer = std.ArrayList(u8).init(fba.allocator());
+    defer headerBuffer.deinit();
+
+    try headerBuffer.appendSlice(" Offset  ");
+
+    for (0..BYTES_PER_LINE) |i| {
+        try headerBuffer.writer().print("{X:0>2} ", .{i});
+    }
+
+    for (0..BYTES_PER_LINE) |i| {
+        try headerBuffer.writer().print("{X:1}", .{i % 16});
+    }
+
+    try headerBuffer.append(0);
+
+    lineBuffer = std.ArrayList(u8).init(fba.allocator());
+    defer lineBuffer.deinit();
+
     rl.initWindow(814, 640, "RayxEdigor");
     defer rl.closeWindow();
 
@@ -145,24 +240,22 @@ pub fn main() anyerror!u8 {
         return 1;
     }
 
-    const fontMeasurements: rl.Vector2 = rl.measureTextEx(font, "K", @floatFromInt(font.baseSize), 1);
+    const fontMeasurements: rl.Vector2 = rl.measureTextEx(font, "K", @floatFromInt(font.baseSize), FONT_SPACING);
 
     fontWidth = fontMeasurements.x;
     fontHeight = fontMeasurements.y;
 
-    screenWidth = @intFromFloat(@round(SCREEN_COLUMNS * fontWidth + SCREEN_COLUMNS - 1));
-    screenHeight = @intFromFloat(@round((SCREEN_LINES + 2) * fontHeight));
+    screenWidth = @intFromFloat(@round(SCREEN_COLUMNS * fontWidth + (SCREEN_COLUMNS - 1) * FONT_SPACING));
+    screenHeight = @intFromFloat(@round((SCREEN_LINES + 2) * fontHeight + (SCREEN_LINES + 2) * LINE_SPACING));
+    // Here it does not take off 1 because there are half line spacing    ^
+    // on top and half at bottom -----------------------------------------´
 
-    lineHeight = @intFromFloat(@round(fontMeasurements.y));
+    lineHeight = @intFromFloat(@round(fontMeasurements.y) + LINE_SPACING);
 
     rl.setWindowSize(screenWidth, screenHeight);
 
     rom = try ROM.init("resources/test.txt");
     defer rom.deinit();
-
-    if (!rom.loaded) {
-        return 1;
-    }
 
     rl.setTargetFPS(60);
 
@@ -170,59 +263,37 @@ pub fn main() anyerror!u8 {
         rl.beginDrawing();
         defer rl.endDrawing();
 
-        const viewTopLine = @divFloor(rom.address, 16);
-        const viewBottomLine = viewTopLine + SCREEN_LINES - 1;
+        // const viewTopLine = @divFloor(rom.address, BYTES_PER_LINE);
+        // const viewBottomLine = viewTopLine + SCREEN_LINES - 1;
 
         if (rl.isKeyPressed(rl.KeyboardKey.down) or rl.isKeyPressedRepeat(rl.KeyboardKey.down)) {
-            if (selectedLine < rom.lines - 1) {
-                selectedLine += 1;
-
-                if (selectedLine > viewBottomLine) {
-                    rom.address += 16;
-                }
-            }
+            try scrollBy(1, ScrollDirection.down);
         } else if (rl.isKeyPressed(rl.KeyboardKey.up) or rl.isKeyPressedRepeat(rl.KeyboardKey.up)) {
-            if (selectedLine > 0) {
-                selectedLine -= 1;
-
-                if (selectedLine < viewTopLine) {
-                    rom.address -= 16;
-                }
-            }
+            try scrollBy(1, ScrollDirection.up);
         } else if (rl.isKeyPressed(rl.KeyboardKey.page_down) or rl.isKeyPressedRepeat(rl.KeyboardKey.page_down)) {
-            const newLine: u31 = @min(rom.lines - 1, selectedLine + SCREEN_LINES);
-            const difference: u31 = newLine - selectedLine;
-
-            selectedLine = newLine;
-
-            var newAddress: u31 = rom.address;
-
-            if (difference >= SCREEN_LINES) {
-                newAddress += difference * 16;
-            } else if (rom.lines > SCREEN_LINES) {
-                newAddress = (rom.lines - SCREEN_LINES - 1) * 16;
-            }
-
-            try std.io.getStdOut().writer().print("NL: {d} D: {d} RA: {d} NA: {d}\n", .{ newLine, difference, rom.address, newAddress });
-
-            rom.address = newAddress;
+            try scrollBy(SCREEN_LINES, ScrollDirection.down);
         } else if (rl.isKeyPressed(rl.KeyboardKey.page_up) or rl.isKeyPressedRepeat(rl.KeyboardKey.page_up)) {
-            const newLine: u31 = @max(selectedLine - SCREEN_LINES, 0);
-            const difference: u31 = selectedLine - newLine;
+            try scrollBy(SCREEN_LINES, ScrollDirection.up);
+        }
 
-            selectedLine = newLine;
-
-            var newAddress: u31 = undefined;
-
-            if (difference >= SCREEN_LINES) {
-                newAddress = rom.address - (difference * 16);
-            } else {
-                newAddress = 0;
+        if (rl.isKeyDown(rl.KeyboardKey.left_control)) {
+            if (rl.isKeyDown(rl.KeyboardKey.home)) {
+                try scrollBy(rom.lines, ScrollDirection.up);
+            } else if (rl.isKeyDown(rl.KeyboardKey.end)) {
+                try scrollBy(rom.lines, ScrollDirection.down);
             }
+        }
 
-            try std.io.getStdOut().writer().print("NL: {d} D: {d} RA: {d} NA: {d}\n", .{ newLine, difference, rom.address, newAddress });
+        const wheel: f32 = rl.getMouseWheelMove();
 
-            rom.address = newAddress;
+        if (wheel != 0.0) {
+            const amount = @as(u31, @intFromFloat(@round(@abs(wheel) * 3)));
+
+            if (wheel < 0) {
+                try scrollBy(amount, ScrollDirection.up);
+            } else {
+                try scrollBy(amount, ScrollDirection.down);
+            }
         }
 
         try drawFrame();
