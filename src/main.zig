@@ -4,6 +4,16 @@
 const std = @import("std");
 const rl = @import("raylib");
 
+const STYLE_BACKGROUND: rl.Color = rl.Color.dark_gray;
+const STYLE_HEADER_BACKGROUND: rl.Color = rl.Color.white;
+const STYLE_HEADER_TEXT: rl.Color = rl.Color.black;
+const STYLE_LINE_HIGHLIGHT: rl.Color = rl.Color.light_gray;
+const STYLE_TEXT: rl.Color = rl.Color.light_gray;
+const STYLE_TEXT_HIGHLIGHT: rl.Color = rl.Color.black;
+const STYLE_CHARACTER_HIGHLIGHT: rl.Color = rl.Color.white;
+const STYLE_STATUSBAR_BACKGROUND: rl.Color = rl.Color.white;
+const STYLE_STATUSBAR_TEXT: rl.Color = rl.Color.black;
+
 const BYTES_PER_LINE: u8 = 16;
 const FONT_SIZE: u31 = 20;
 const FONT_SPACING: u31 = 1;
@@ -248,23 +258,27 @@ pub fn scrollBy(amount: u31, direction: ScrollDirection) anyerror!void {
 
 pub fn drawFrame() anyerror!void {
     const viewTopLine: u31 = @divFloor(rom.address, BYTES_PER_LINE);
-    const viewBottomLine: u31 = viewTopLine + SCREEN_LINES - 1;
 
     // Clear background
-    rl.clearBackground(rl.Color.dark_gray);
+    rl.clearBackground(STYLE_BACKGROUND);
 
     // Draw top bar
-    rl.drawRectangle(0, 0, screenWidth, lineHeight, rl.Color.white);
+    rl.drawRectangle(0, 0, screenWidth, lineHeight, STYLE_HEADER_BACKGROUND);
 
-    drawTextCustom(@ptrCast(headerBuffer.items), FONT_SPACING_HALF, LINE_SPACING_HALF, rl.Color.black);
+    drawTextCustom(@ptrCast(headerBuffer.items), FONT_SPACING_HALF, LINE_SPACING_HALF, STYLE_HEADER_TEXT);
 
     // Draw status bar
-    rl.drawRectangle(0, screenHeight - lineHeight, screenWidth, lineHeight, rl.Color.white);
+    rl.drawRectangle(0, screenHeight - lineHeight, screenWidth, lineHeight, STYLE_STATUSBAR_BACKGROUND);
 
     lineBuffer.clearRetainingCapacity();
 
     try lineBuffer.appendSlice(" Lin: ");
-    try lineBuffer.writer().print("{[value]d:[width]}/{[total]d} ({[percentage]d:6.2}%)", .{ .value = selectedLine + 1, .total = rom.lines, .percentage = (@as(f32, @floatFromInt(selectedLine)) + 1.0) * 100.0 / @as(f32, @floatFromInt(rom.lines)), .width = std.math.log10(rom.lines) + 1 });
+    try lineBuffer.writer().print("{[value]d:[width]}/{[total]d} ({[percentage]d:6.2}%)", .{
+        .value = selectedLine + 1,
+        .total = rom.lines,
+        .percentage = (@as(f32, @floatFromInt(selectedLine)) + 1.0) * 100.0 / @as(f32, @floatFromInt(rom.lines)),
+        .width = std.math.log10(rom.lines) + 1,
+    });
     try lineBuffer.appendSlice(" Col: ");
     try lineBuffer.writer().print("{X:0>2}", .{selectedColumn});
     try lineBuffer.appendSlice(" Addr: ");
@@ -273,24 +287,22 @@ pub fn drawFrame() anyerror!void {
     try lineBuffer.writer().print("{s}", .{if (selectedMode == SelectedMode.Character) "Character" else "Hexadecimal"});
     try lineBuffer.append(0);
 
-    drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, screenHeight - lineHeight + LINE_SPACING_HALF, rl.Color.black);
+    drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, screenHeight - lineHeight + LINE_SPACING_HALF, STYLE_STATUSBAR_TEXT);
 
     // Draw selected highlight
-    if (selectedLine >= viewTopLine and selectedLine <= viewBottomLine) {
-        rl.drawRectangle(0, (selectedLine - viewTopLine + 1) * lineHeight, screenWidth, lineHeight, rl.Color.light_gray);
-    }
+    rl.drawRectangle(0, (selectedLine - viewTopLine + 1) * lineHeight, screenWidth, lineHeight, STYLE_LINE_HIGHLIGHT);
 
     const characterHighlightY: i32 = (selectedLine - viewTopLine + 1) * lineHeight;
 
     var characterHighlightX: i32 = undefined;
 
     if (selectedMode == SelectedMode.Character) {
-        characterHighlightX = (8 + 1 + 2 * BYTES_PER_LINE + BYTES_PER_LINE - 1 + 1 + selectedColumn) * characterWidth;
+        characterHighlightX = (8 + 1 + (2 * BYTES_PER_LINE) + (BYTES_PER_LINE - 1) + 1 + selectedColumn) * characterWidth;
     } else {
-        characterHighlightX = (8 + 1 + selectedColumn * 3 + selectedNibble) * characterWidth;
+        characterHighlightX = (8 + 1 + (selectedColumn * 3) + selectedNibble) * characterWidth;
     }
 
-    rl.drawRectangle(characterHighlightX, characterHighlightY, characterWidth, lineHeight, rl.Color.white);
+    rl.drawRectangle(characterHighlightX, characterHighlightY, characterWidth, lineHeight, STYLE_CHARACTER_HIGHLIGHT);
 
     // Draw contents
     for (0..SCREEN_LINES) |i| {
@@ -327,7 +339,78 @@ pub fn drawFrame() anyerror!void {
 
         try lineBuffer.append(0);
 
-        drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, @as(u31, @intCast(i + 1)) * lineHeight + LINE_SPACING_HALF, if (viewTopLine + @as(u31, @intCast(i)) == selectedLine) rl.Color.black else rl.Color.light_gray);
+        drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, @as(u31, @intCast(i + 1)) * lineHeight + LINE_SPACING_HALF, if (viewTopLine + @as(u31, @intCast(i)) == selectedLine) STYLE_TEXT_HIGHLIGHT else STYLE_TEXT);
+    }
+}
+
+pub fn processShortcuts() anyerror!void {
+    if (rl.isKeyPressed(rl.KeyboardKey.down) or rl.isKeyPressedRepeat(rl.KeyboardKey.down)) {
+        try scrollBy(1, ScrollDirection.down);
+    } else if (rl.isKeyPressed(rl.KeyboardKey.up) or rl.isKeyPressedRepeat(rl.KeyboardKey.up)) {
+        try scrollBy(1, ScrollDirection.up);
+    } else if (rl.isKeyPressed(rl.KeyboardKey.page_down) or rl.isKeyPressedRepeat(rl.KeyboardKey.page_down)) {
+        try scrollBy(SCREEN_LINES, ScrollDirection.down);
+    } else if (rl.isKeyPressed(rl.KeyboardKey.page_up) or rl.isKeyPressedRepeat(rl.KeyboardKey.page_up)) {
+        try scrollBy(SCREEN_LINES, ScrollDirection.up);
+    } else if (rl.isKeyPressed(rl.KeyboardKey.left) or rl.isKeyPressedRepeat(rl.KeyboardKey.left)) {
+        if (selectedMode == SelectedMode.Character) {
+            try scrollBy(1, ScrollDirection.left);
+        } else {
+            if (selectedNibble == 1) {
+                selectedNibble = 0;
+            } else if (selectedLine > 0 or selectedColumn > 0) {
+                selectedNibble = 1;
+
+                try scrollBy(1, ScrollDirection.left);
+            }
+        }
+    } else if (rl.isKeyPressed(rl.KeyboardKey.right) or rl.isKeyPressedRepeat(rl.KeyboardKey.right)) {
+        if (selectedMode == SelectedMode.Character) {
+            try scrollBy(1, ScrollDirection.right);
+        } else {
+            if (selectedNibble == 0) {
+                selectedNibble = 1;
+            } else if (selectedLine < rom.lastLine or selectedColumn < BYTES_PER_LINE - 1) {
+                selectedNibble = 0;
+
+                try scrollBy(1, ScrollDirection.right);
+            }
+        }
+    } else if (rl.isKeyPressed(rl.KeyboardKey.tab) or rl.isKeyPressedRepeat(rl.KeyboardKey.tab)) {
+        selectedMode = @enumFromInt(@mod(@as(u2, @intFromEnum(selectedMode)) + 1, 2));
+        selectedNibble = 0;
+    }
+
+    if (rl.isKeyDown(rl.KeyboardKey.left_control)) {
+        if (rl.isKeyDown(rl.KeyboardKey.home)) {
+            selectedColumn = 0;
+            selectedNibble = 0;
+
+            try scrollBy(rom.lines, ScrollDirection.up);
+        } else if (rl.isKeyDown(rl.KeyboardKey.end)) {
+            try scrollBy(rom.lines, ScrollDirection.down);
+
+            selectedColumn = BYTES_PER_LINE - 1;
+            selectedNibble = 0;
+        } else if (rl.isKeyDown(rl.KeyboardKey.left)) {
+            selectedColumn = 0;
+            selectedNibble = 0;
+        } else if (rl.isKeyDown(rl.KeyboardKey.right)) {
+            selectedColumn = BYTES_PER_LINE - 1;
+            selectedNibble = 0;
+        }
+    }
+
+    const wheel: f32 = rl.getMouseWheelMove();
+
+    if (wheel != 0.0) {
+        const amount = @as(u31, @intFromFloat(@round(@abs(wheel) * 3)));
+
+        if (wheel < 0) {
+            try scrollBy(amount, ScrollDirection.down);
+        } else {
+            try scrollBy(amount, ScrollDirection.up);
+        }
     }
 }
 
@@ -386,85 +469,7 @@ pub fn main() anyerror!u8 {
         rl.beginDrawing();
         defer rl.endDrawing();
 
-        if (rl.isKeyPressed(rl.KeyboardKey.down) or rl.isKeyPressedRepeat(rl.KeyboardKey.down)) {
-            try scrollBy(1, ScrollDirection.down);
-        } else if (rl.isKeyPressed(rl.KeyboardKey.up) or rl.isKeyPressedRepeat(rl.KeyboardKey.up)) {
-            try scrollBy(1, ScrollDirection.up);
-        } else if (rl.isKeyPressed(rl.KeyboardKey.page_down) or rl.isKeyPressedRepeat(rl.KeyboardKey.page_down)) {
-            try scrollBy(SCREEN_LINES, ScrollDirection.down);
-        } else if (rl.isKeyPressed(rl.KeyboardKey.page_up) or rl.isKeyPressedRepeat(rl.KeyboardKey.page_up)) {
-            try scrollBy(SCREEN_LINES, ScrollDirection.up);
-        } else if (rl.isKeyPressed(rl.KeyboardKey.left) or rl.isKeyPressedRepeat(rl.KeyboardKey.left)) {
-            if (selectedMode == SelectedMode.Character) {
-                if (selectedLine > 0 or selectedColumn > 0) {
-                    try scrollBy(1, ScrollDirection.left);
-                }
-            } else {
-                if (selectedNibble == 1) {
-                    selectedNibble = 0;
-                } else if (selectedLine > 0 or selectedColumn > 0) {
-                    selectedNibble = 1;
-
-                    try scrollBy(1, ScrollDirection.left);
-                }
-            }
-        } else if (rl.isKeyPressed(rl.KeyboardKey.right) or rl.isKeyPressedRepeat(rl.KeyboardKey.right)) {
-            if (selectedMode == SelectedMode.Character) {
-                if (selectedLine < rom.lastLine or selectedColumn < BYTES_PER_LINE - 1) {
-                    try scrollBy(1, ScrollDirection.right);
-                }
-            } else {
-                if (selectedNibble == 0) {
-                    selectedNibble = 1;
-                } else if (selectedLine < rom.lastLine or selectedColumn < BYTES_PER_LINE - 1) {
-                    selectedNibble = 0;
-
-                    try scrollBy(1, ScrollDirection.right);
-                }
-                // if (selectedNibble == 1) {
-                //     selectedNibble = 0;
-
-                //     try scrollBy(1, ScrollDirection.right);
-                // } else {
-                //     selectedNibble = 1;
-                // }
-            }
-        } else if (rl.isKeyPressed(rl.KeyboardKey.tab) or rl.isKeyPressedRepeat(rl.KeyboardKey.tab)) {
-            selectedMode = @enumFromInt(@mod(@as(u2, @intFromEnum(selectedMode)) + 1, 2));
-            selectedNibble = 0;
-        }
-
-        if (rl.isKeyDown(rl.KeyboardKey.left_control)) {
-            if (rl.isKeyDown(rl.KeyboardKey.home)) {
-                selectedColumn = 0;
-                selectedNibble = 0;
-
-                try scrollBy(rom.lines, ScrollDirection.up);
-            } else if (rl.isKeyDown(rl.KeyboardKey.end)) {
-                try scrollBy(rom.lines, ScrollDirection.down);
-
-                selectedColumn = BYTES_PER_LINE - 1;
-                selectedNibble = 0;
-            } else if (rl.isKeyDown(rl.KeyboardKey.left)) {
-                selectedColumn = 0;
-                selectedNibble = 0;
-            } else if (rl.isKeyDown(rl.KeyboardKey.right)) {
-                selectedColumn = BYTES_PER_LINE - 1;
-                selectedNibble = 0;
-            }
-        }
-
-        const wheel: f32 = rl.getMouseWheelMove();
-
-        if (wheel != 0.0) {
-            const amount = @as(u31, @intFromFloat(@round(@abs(wheel) * 3)));
-
-            if (wheel < 0) {
-                try scrollBy(amount, ScrollDirection.down);
-            } else {
-                try scrollBy(amount, ScrollDirection.up);
-            }
-        }
+        try processShortcuts();
 
         try drawFrame();
     }
