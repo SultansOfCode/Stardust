@@ -427,6 +427,12 @@ pub fn processShortcuts() anyerror!void {
     } else if (rl.isKeyPressed(rl.KeyboardKey.tab) or rl.isKeyPressedRepeat(rl.KeyboardKey.tab)) {
         selectedMode = @enumFromInt(@mod(@as(u2, @intFromEnum(selectedMode)) + 1, 2));
         selectedNibble = 0;
+    } else if (rl.isKeyDown(rl.KeyboardKey.home)) {
+        selectedColumn = 0;
+        selectedNibble = 0;
+    } else if (rl.isKeyDown(rl.KeyboardKey.end)) {
+        selectedColumn = BYTES_PER_LINE - 1;
+        selectedNibble = 0;
     }
 
     if (rl.isKeyDown(rl.KeyboardKey.left_control)) {
@@ -438,12 +444,6 @@ pub fn processShortcuts() anyerror!void {
         } else if (rl.isKeyDown(rl.KeyboardKey.end)) {
             try scrollBy(rom.lines, ScrollDirection.down);
 
-            selectedColumn = BYTES_PER_LINE - 1;
-            selectedNibble = 0;
-        } else if (rl.isKeyDown(rl.KeyboardKey.left)) {
-            selectedColumn = 0;
-            selectedNibble = 0;
-        } else if (rl.isKeyDown(rl.KeyboardKey.right)) {
             selectedColumn = BYTES_PER_LINE - 1;
             selectedNibble = 0;
         } else if (rl.isKeyPressed(rl.KeyboardKey.equal)) {
