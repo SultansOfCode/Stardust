@@ -11,6 +11,8 @@ const STYLE_LINE_HIGHLIGHT: rl.Color = rl.Color.light_gray;
 const STYLE_TEXT: rl.Color = rl.Color.light_gray;
 const STYLE_TEXT_HIGHLIGHT: rl.Color = rl.Color.black;
 const STYLE_CHARACTER_HIGHLIGHT: rl.Color = rl.Color.white;
+const STYLE_SCROLLBAR_BACKGROUND: rl.Color = rl.Color.white;
+const STYLE_SCROLLBAR_FOREGROUND: rl.Color = rl.Color.black;
 const STYLE_STATUSBAR_BACKGROUND: rl.Color = rl.Color.white;
 const STYLE_STATUSBAR_TEXT: rl.Color = rl.Color.black;
 
@@ -30,6 +32,7 @@ const SCREEN_COLUMNS: u31 = 8 + 1 + (BYTES_PER_LINE * 2) + (BYTES_PER_LINE - 1) 
 // Bytes as char .    ----------------------------------------------------------------´                |
 // Scrollbar          ---------------------------------------------------------------------------------´
 const HEAP_SIZE: u31 = 4096;
+const SCROLLBAR_SCALE: f32 = 2.1;
 
 const SelectedMode: type = enum {
     Character,
@@ -49,6 +52,10 @@ var screenHeight: u31 = undefined;
 
 var characterWidth: u31 = undefined;
 var lineHeight: u31 = undefined;
+
+var scrollbarHeight: u31 = undefined;
+var scrollbarHeightHalf: u31 = undefined;
+var scrollbarClicked: bool = false;
 
 var HEAP: [HEAP_SIZE]u8 = undefined;
 var fba: std.heap.FixedBufferAllocator = undefined;
@@ -280,7 +287,7 @@ pub fn drawFrame() anyerror!void {
     try lineBuffer.writer().print("{[value]d:[width]}/{[total]d} ({[percentage]d:6.2}%)", .{
         .value = selectedLine + 1,
         .total = rom.lines,
-        .percentage = (@as(f32, @floatFromInt(selectedLine)) + 1.0) * 100.0 / @as(f32, @floatFromInt(rom.lines)),
+        .percentage = @as(f32, @floatFromInt(selectedLine)) * 100.0 / @as(f32, @floatFromInt(rom.lastLine)),
         .width = std.math.log10(rom.lines) + 1,
     });
     try lineBuffer.appendSlice(" Col: ");
@@ -294,7 +301,7 @@ pub fn drawFrame() anyerror!void {
     drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, screenHeight - lineHeight + LINE_SPACING_HALF, STYLE_STATUSBAR_TEXT);
 
     // Draw selected highlight
-    rl.drawRectangle(0, (selectedLine - viewTopLine + 1) * lineHeight, screenWidth, lineHeight, STYLE_LINE_HIGHLIGHT);
+    rl.drawRectangle(0, (selectedLine - viewTopLine + 1) * lineHeight, screenWidth - characterWidth, lineHeight, STYLE_LINE_HIGHLIGHT);
 
     const characterHighlightY: i32 = (selectedLine - viewTopLine + 1) * lineHeight;
 
@@ -307,6 +314,14 @@ pub fn drawFrame() anyerror!void {
     }
 
     rl.drawRectangle(characterHighlightX, characterHighlightY, characterWidth, lineHeight, STYLE_CHARACTER_HIGHLIGHT);
+
+    // Draw scrollbar
+    const scrollbarSpace: u31 = SCREEN_LINES * lineHeight - scrollbarHeight;
+    const scrollbarX: u31 = screenWidth - characterWidth;
+    const scrollbarY: u31 = @as(u31, @intFromFloat(@as(f32, @floatFromInt(selectedLine)) * @as(f32, @floatFromInt(scrollbarSpace)) / @as(f32, @floatFromInt(rom.lastLine)) + @as(f32, @floatFromInt(lineHeight))));
+
+    rl.drawRectangle(screenWidth - characterWidth, lineHeight, characterWidth, SCREEN_LINES * lineHeight, STYLE_SCROLLBAR_BACKGROUND);
+    rl.drawRectangle(scrollbarX, scrollbarY, characterWidth, scrollbarHeight, STYLE_SCROLLBAR_FOREGROUND);
 
     // Draw contents
     for (0..SCREEN_LINES) |i| {
@@ -370,6 +385,8 @@ pub fn configureFontAndScreen() anyerror!void {
 
     characterWidth = @intFromFloat(@round(fontMeasurements.x) + FONT_SPACING);
     lineHeight = @intFromFloat(@round(fontMeasurements.y) + LINE_SPACING);
+    scrollbarHeight = @as(u31, @intFromFloat(@as(f32, @floatFromInt(lineHeight)) * SCROLLBAR_SCALE));
+    scrollbarHeightHalf = @divFloor(scrollbarHeight, 2);
 
     rl.setWindowSize(screenWidth, screenHeight);
 }
@@ -441,6 +458,22 @@ pub fn processShortcuts() anyerror!void {
     }
 }
 
+pub fn scrollByScrollbar() anyerror!void {
+    const scrollbarLimitTop: u31 = lineHeight + scrollbarHeightHalf;
+    const scrollbarLimitBottom: u31 = screenHeight - lineHeight - scrollbarHeightHalf;
+    const mouseY: u31 = @as(u31, @intCast(std.math.clamp(rl.getMouseY(), scrollbarLimitTop, scrollbarLimitBottom))) - scrollbarLimitTop;
+    const scrollbarSpace: u31 = SCREEN_LINES * lineHeight - scrollbarHeight;
+    const scrollbarPercentage: f32 = @as(f32, @floatFromInt(mouseY)) / @as(f32, @floatFromInt(scrollbarSpace));
+    const scrolledLine: u31 = @as(u31, @intFromFloat(@as(f32, @floatFromInt(rom.lastLine)) * scrollbarPercentage));
+    const linesDifference: u31 = @as(u31, @intCast(@abs(@as(i32, @intCast(selectedLine)) - @as(i32, @intCast(scrolledLine)))));
+
+    if (scrolledLine < selectedLine) {
+        try scrollBy(linesDifference, ScrollDirection.up);
+    } else if (scrolledLine > selectedLine) {
+        try scrollBy(linesDifference, ScrollDirection.down);
+    }
+}
+
 pub fn processMouse() anyerror!void {
     const wheel: f32 = rl.getMouseWheelMove();
 
@@ -467,6 +500,12 @@ pub fn processMouse() anyerror!void {
     }
 
     if (rl.isMouseButtonDown(rl.MouseButton.left)) {
+        if (scrollbarClicked) {
+            try scrollByScrollbar();
+
+            return;
+        }
+
         const mouseX: u31 = @max(0, rl.getMouseX());
         const mouseY: u31 = @max(0, rl.getMouseY());
         const line: u31 = @divFloor(mouseY, lineHeight);
@@ -478,7 +517,11 @@ pub fn processMouse() anyerror!void {
             }
 
             if (column == SCREEN_COLUMNS - 1) {
-                // TODO Scrollbar
+                scrollbarClicked = true;
+
+                try scrollByScrollbar();
+
+                break :viewArea;
             } else {
                 const viewTopLine: u31 = @divFloor(rom.address, BYTES_PER_LINE);
 
@@ -506,6 +549,12 @@ pub fn processMouse() anyerror!void {
                     selectedColumn = @as(u8, @intCast(byteIndex));
                 }
             }
+        }
+    }
+
+    if (rl.isMouseButtonReleased(rl.MouseButton.left)) {
+        if (scrollbarClicked) {
+            scrollbarClicked = false;
         }
     }
 }
@@ -537,7 +586,7 @@ pub fn main() anyerror!u8 {
     try configureFontAndScreen();
     defer if (font.glyphCount > 0) rl.unloadFont(font);
 
-    rom = try ROM.init("resources/pkmngold.gbc");
+    rom = try ROM.init("resources/test.txt");
     defer rom.deinit();
 
     rl.setTargetFPS(60);
