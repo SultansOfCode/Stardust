@@ -218,16 +218,16 @@ pub fn scrollBy(amount: u31, direction: ScrollDirection) anyerror!void {
         var newLine: u31 = undefined;
 
         if (direction == ScrollDirection.down) {
-            newLine = @min(rom.lastLine, selectedLine + amount);
+            newLine = @min(selectedLine + amount, rom.lastLine);
         } else if (direction == ScrollDirection.up) {
             const iSelectedLine: i32 = selectedLine;
-            const iNewLine: i32 = @max(iSelectedLine - amount, 0);
+            const iNewLine: i32 = @max(0, iSelectedLine - amount);
 
             newLine = @as(u31, @intCast(iNewLine));
         }
 
         if (newLine > viewBottomLine) {
-            rom.address = @min((rom.lines - SCREEN_LINES) * BYTES_PER_LINE, rom.address + amount * BYTES_PER_LINE);
+            rom.address = @min(rom.address + amount * BYTES_PER_LINE, (rom.lines - SCREEN_LINES) * BYTES_PER_LINE);
         } else if (newLine < viewTopLine) {
             const delta: u31 = amount * BYTES_PER_LINE;
 
@@ -430,11 +430,11 @@ pub fn processShortcuts() anyerror!void {
             selectedColumn = BYTES_PER_LINE - 1;
             selectedNibble = 0;
         } else if (rl.isKeyPressed(rl.KeyboardKey.equal)) {
-            fontSize = @min(FONT_SIZE_MAX, fontSize + 1);
+            fontSize = @min(fontSize + 1, FONT_SIZE_MAX);
 
             try configureFontAndScreen();
         } else if (rl.isKeyPressed(rl.KeyboardKey.minus)) {
-            fontSize = @max(fontSize - 1, FONT_SIZE_MIN);
+            fontSize = @max(FONT_SIZE_MIN, fontSize - 1);
 
             try configureFontAndScreen();
         }
@@ -449,9 +449,9 @@ pub fn processMouse() anyerror!void {
             const amount: u31 = @as(u31, @intFromFloat(@abs(wheel)));
 
             if (wheel < 0) {
-                fontSize = @max(fontSize - amount, FONT_SIZE_MIN);
+                fontSize = @max(FONT_SIZE_MIN, fontSize - amount);
             } else {
-                fontSize = @min(FONT_SIZE_MAX, fontSize + amount);
+                fontSize = @min(fontSize + amount, FONT_SIZE_MAX);
             }
 
             try configureFontAndScreen();
@@ -462,6 +462,49 @@ pub fn processMouse() anyerror!void {
                 try scrollBy(amount, ScrollDirection.down);
             } else {
                 try scrollBy(amount, ScrollDirection.up);
+            }
+        }
+    }
+
+    if (rl.isMouseButtonDown(rl.MouseButton.left)) {
+        const mouseX: u31 = @max(0, rl.getMouseX());
+        const mouseY: u31 = @max(0, rl.getMouseY());
+        const line: u31 = @divFloor(mouseY, lineHeight);
+        const column: u31 = @divFloor(mouseX, characterWidth);
+
+        viewArea: {
+            if (line < 1 or line > SCREEN_LINES) {
+                break :viewArea;
+            }
+
+            if (column == SCREEN_COLUMNS - 1) {
+                // TODO Scrollbar
+            } else {
+                const viewTopLine: u31 = @divFloor(rom.address, BYTES_PER_LINE);
+
+                selectedLine = viewTopLine + line - 1;
+
+                const hexadecimalStartColumn: u31 = 8 + 1;
+                const hexadecimalEndColumn: u31 = hexadecimalStartColumn + (BYTES_PER_LINE * 2) + (BYTES_PER_LINE - 1) - 1;
+                const charactersStartColumn: u31 = 8 + 1 + (BYTES_PER_LINE * 2) + (BYTES_PER_LINE - 1) + 1;
+                const charactersEndColumn: u31 = charactersStartColumn + (BYTES_PER_LINE - 1);
+
+                if (column >= hexadecimalStartColumn and column <= hexadecimalEndColumn) {
+                    const byteIndex: u31 = @divFloor(column - 9, 3);
+                    const nibbleIndex: u31 = @mod(column, 3);
+
+                    if (nibbleIndex < 2) {
+                        selectedMode = SelectedMode.Hexadecimal;
+                        selectedNibble = @as(u1, @intCast(nibbleIndex));
+                        selectedColumn = @as(u8, @intCast(byteIndex));
+                    }
+                } else if (column >= charactersStartColumn and column <= charactersEndColumn) {
+                    const byteIndex: u31 = column - charactersStartColumn;
+
+                    selectedMode = SelectedMode.Character;
+                    selectedNibble = 0;
+                    selectedColumn = @as(u8, @intCast(byteIndex));
+                }
             }
         }
     }
