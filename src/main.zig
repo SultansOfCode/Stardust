@@ -1,26 +1,36 @@
 // TODO
 // Change all rl.loadFileData to use Zig equivalents
+// Change all rl.unloadFileData to use Zig equivalents
+// Add style's configuration
+// Add edit of contents
+// Add save of contents
+// Add search
+// Add relative search
 
 const std = @import("std");
 const rl = @import("raylib");
 
 const STYLE_BACKGROUND: rl.Color = rl.Color.dark_gray;
+const STYLE_CHARACTER_HIGHLIGHT: rl.Color = rl.Color.white;
 const STYLE_HEADER_BACKGROUND: rl.Color = rl.Color.white;
 const STYLE_HEADER_TEXT: rl.Color = rl.Color.black;
 const STYLE_LINE_HIGHLIGHT: rl.Color = rl.Color.light_gray;
-const STYLE_TEXT: rl.Color = rl.Color.light_gray;
-const STYLE_TEXT_HIGHLIGHT: rl.Color = rl.Color.black;
-const STYLE_CHARACTER_HIGHLIGHT: rl.Color = rl.Color.white;
 const STYLE_SCROLLBAR_BACKGROUND: rl.Color = rl.Color.white;
 const STYLE_SCROLLBAR_FOREGROUND: rl.Color = rl.Color.black;
+const STYLE_TEXT: rl.Color = rl.Color.light_gray;
+const STYLE_TEXT_HIGHLIGHTED: rl.Color = rl.Color.black;
 const STYLE_STATUSBAR_BACKGROUND: rl.Color = rl.Color.white;
 const STYLE_STATUSBAR_TEXT: rl.Color = rl.Color.black;
 
 const FONT_FILE: [:0]const u8 = "resources/firacode.ttf";
+const FONT_SIZE_MIN: u31 = 16;
+const FONT_SIZE_MAX: u31 = 32;
 const FONT_SPACING: u31 = 1;
 const FONT_SPACING_HALF: u31 = @divFloor(FONT_SPACING, 2);
+
 const LINE_SPACING: u31 = 0;
 const LINE_SPACING_HALF: u31 = @divFloor(LINE_SPACING, 2);
+
 const BYTES_PER_LINE: u8 = 16;
 const SCREEN_LINES: u31 = 32;
 const SCREEN_COLUMNS: u31 = 8 + 1 + (BYTES_PER_LINE * 2) + (BYTES_PER_LINE - 1) + 1 + BYTES_PER_LINE + 1;
@@ -31,16 +41,15 @@ const SCREEN_COLUMNS: u31 = 8 + 1 + (BYTES_PER_LINE * 2) + (BYTES_PER_LINE - 1) 
 // Space              ------------------------------------------------------------´   |                |
 // Bytes as char .    ----------------------------------------------------------------´                |
 // Scrollbar          ---------------------------------------------------------------------------------´
+
 const HEAP_SIZE: u31 = 4096;
+
 const SCROLLBAR_SCALE: f32 = 2.1;
 
 const SelectedMode: type = enum {
     Character,
     Hexadecimal,
 };
-
-const FONT_SIZE_MIN: u31 = 16;
-const FONT_SIZE_MAX: u31 = 32;
 
 var fontSize: u31 = 20;
 var font: rl.Font = undefined;
@@ -213,6 +222,35 @@ pub fn drawTextCustom(text: [:0]const u8, x: i32, y: i32, color: rl.Color) void 
     }, @floatFromInt(font.baseSize), FONT_SPACING, color);
 }
 
+pub fn configureFontAndScreen() anyerror!void {
+    if (font.glyphCount > 0) {
+        rl.unloadFont(font);
+    }
+
+    font = try rl.loadFontEx(FONT_FILE, fontSize, null);
+
+    if (font.glyphCount == 0) {
+        return ROMError.EmptyFont;
+    }
+
+    const fontMeasurements: rl.Vector2 = rl.measureTextEx(font, "K", @floatFromInt(font.baseSize), FONT_SPACING);
+
+    fontWidth = fontMeasurements.x;
+    fontHeight = fontMeasurements.y;
+
+    screenWidth = @as(u31, @intFromFloat(SCREEN_COLUMNS * fontWidth + (SCREEN_COLUMNS - 1) * FONT_SPACING));
+    screenHeight = @as(u31, @intFromFloat((SCREEN_LINES + 2) * fontHeight + (SCREEN_LINES + 2) * LINE_SPACING));
+    // Here it does not take off 1 because there are half line spacing    ^
+    // on top and half at bottom -----------------------------------------´
+
+    characterWidth = @intFromFloat(@round(fontMeasurements.x) + FONT_SPACING);
+    lineHeight = @intFromFloat(@round(fontMeasurements.y) + LINE_SPACING);
+    scrollbarHeight = @as(u31, @intFromFloat(@as(f32, @floatFromInt(lineHeight)) * SCROLLBAR_SCALE));
+    scrollbarHeightHalf = @divFloor(scrollbarHeight, 2);
+
+    rl.setWindowSize(screenWidth, screenHeight);
+}
+
 pub fn scrollBy(amount: u31, direction: ScrollDirection) anyerror!void {
     if (amount == 0) {
         return;
@@ -263,6 +301,174 @@ pub fn scrollBy(amount: u31, direction: ScrollDirection) anyerror!void {
 
                 try scrollBy(1, ScrollDirection.down);
             }
+        }
+    }
+}
+
+pub fn scrollByScrollbar() anyerror!void {
+    const scrollbarLimitTop: u31 = lineHeight + scrollbarHeightHalf;
+    const scrollbarLimitBottom: u31 = screenHeight - lineHeight - scrollbarHeightHalf;
+    const mouseY: u31 = @as(u31, @intCast(std.math.clamp(rl.getMouseY(), scrollbarLimitTop, scrollbarLimitBottom))) - scrollbarLimitTop;
+    const scrollbarSpace: u31 = SCREEN_LINES * lineHeight - scrollbarHeight;
+    const scrollbarPercentage: f32 = @as(f32, @floatFromInt(mouseY)) / @as(f32, @floatFromInt(scrollbarSpace));
+    const scrolledLine: u31 = @as(u31, @intFromFloat(@as(f32, @floatFromInt(rom.lastLine)) * scrollbarPercentage));
+    const linesDifference: u31 = @as(u31, @intCast(@abs(@as(i32, @intCast(selectedLine)) - @as(i32, @intCast(scrolledLine)))));
+
+    if (scrolledLine < selectedLine) {
+        try scrollBy(linesDifference, ScrollDirection.up);
+    } else if (scrolledLine > selectedLine) {
+        try scrollBy(linesDifference, ScrollDirection.down);
+    }
+}
+
+pub fn processShortcuts() anyerror!void {
+    if (rl.isKeyPressed(rl.KeyboardKey.down) or rl.isKeyPressedRepeat(rl.KeyboardKey.down)) {
+        try scrollBy(1, ScrollDirection.down);
+    } else if (rl.isKeyPressed(rl.KeyboardKey.up) or rl.isKeyPressedRepeat(rl.KeyboardKey.up)) {
+        try scrollBy(1, ScrollDirection.up);
+    } else if (rl.isKeyPressed(rl.KeyboardKey.page_down) or rl.isKeyPressedRepeat(rl.KeyboardKey.page_down)) {
+        try scrollBy(SCREEN_LINES, ScrollDirection.down);
+    } else if (rl.isKeyPressed(rl.KeyboardKey.page_up) or rl.isKeyPressedRepeat(rl.KeyboardKey.page_up)) {
+        try scrollBy(SCREEN_LINES, ScrollDirection.up);
+    } else if (rl.isKeyPressed(rl.KeyboardKey.left) or rl.isKeyPressedRepeat(rl.KeyboardKey.left)) {
+        if (selectedMode == SelectedMode.Character) {
+            try scrollBy(1, ScrollDirection.left);
+        } else {
+            if (selectedNibble == 1) {
+                selectedNibble = 0;
+            } else if (selectedLine > 0 or selectedColumn > 0) {
+                selectedNibble = 1;
+
+                try scrollBy(1, ScrollDirection.left);
+            }
+        }
+    } else if (rl.isKeyPressed(rl.KeyboardKey.right) or rl.isKeyPressedRepeat(rl.KeyboardKey.right)) {
+        if (selectedMode == SelectedMode.Character) {
+            try scrollBy(1, ScrollDirection.right);
+        } else {
+            if (selectedNibble == 0) {
+                selectedNibble = 1;
+            } else if (selectedLine < rom.lastLine or selectedColumn < BYTES_PER_LINE - 1) {
+                selectedNibble = 0;
+
+                try scrollBy(1, ScrollDirection.right);
+            }
+        }
+    } else if (rl.isKeyPressed(rl.KeyboardKey.tab) or rl.isKeyPressedRepeat(rl.KeyboardKey.tab)) {
+        selectedMode = @enumFromInt(@mod(@as(u2, @intFromEnum(selectedMode)) + 1, 2));
+        selectedNibble = 0;
+    } else if (rl.isKeyDown(rl.KeyboardKey.home)) {
+        selectedColumn = 0;
+        selectedNibble = 0;
+    } else if (rl.isKeyDown(rl.KeyboardKey.end)) {
+        selectedColumn = BYTES_PER_LINE - 1;
+        selectedNibble = 0;
+    }
+
+    if (rl.isKeyDown(rl.KeyboardKey.left_control)) {
+        if (rl.isKeyDown(rl.KeyboardKey.home)) {
+            selectedColumn = 0;
+            selectedNibble = 0;
+
+            try scrollBy(rom.lines, ScrollDirection.up);
+        } else if (rl.isKeyDown(rl.KeyboardKey.end)) {
+            try scrollBy(rom.lines, ScrollDirection.down);
+
+            selectedColumn = BYTES_PER_LINE - 1;
+            selectedNibble = 0;
+        } else if (rl.isKeyPressed(rl.KeyboardKey.equal)) {
+            fontSize = @min(fontSize + 1, FONT_SIZE_MAX);
+
+            try configureFontAndScreen();
+        } else if (rl.isKeyPressed(rl.KeyboardKey.minus)) {
+            fontSize = @max(FONT_SIZE_MIN, fontSize - 1);
+
+            try configureFontAndScreen();
+        }
+    }
+}
+
+pub fn processMouse() anyerror!void {
+    const wheel: f32 = rl.getMouseWheelMove();
+
+    if (wheel != 0.0) {
+        if (rl.isKeyDown(rl.KeyboardKey.left_control)) {
+            const amount: u31 = @as(u31, @intFromFloat(@abs(wheel)));
+
+            if (wheel < 0) {
+                fontSize = @max(FONT_SIZE_MIN, fontSize - amount);
+            } else {
+                fontSize = @min(fontSize + amount, FONT_SIZE_MAX);
+            }
+
+            try configureFontAndScreen();
+        } else {
+            const amount: u31 = @as(u31, @intFromFloat(@round(@abs(wheel) * 3)));
+
+            if (wheel < 0) {
+                try scrollBy(amount, ScrollDirection.down);
+            } else {
+                try scrollBy(amount, ScrollDirection.up);
+            }
+        }
+    }
+
+    if (rl.isMouseButtonDown(rl.MouseButton.left)) {
+        if (scrollbarClicked) {
+            try scrollByScrollbar();
+
+            return;
+        }
+
+        const mouseX: u31 = @max(0, rl.getMouseX());
+        const mouseY: u31 = @max(0, rl.getMouseY());
+        const line: u31 = @divFloor(mouseY, lineHeight);
+        const column: u31 = @divFloor(mouseX, characterWidth);
+
+        viewArea: {
+            if (line < 1 or line > SCREEN_LINES) {
+                break :viewArea;
+            }
+
+            if (column == SCREEN_COLUMNS - 1) {
+                scrollbarClicked = true;
+
+                try scrollByScrollbar();
+
+                break :viewArea;
+            } else {
+                const viewTopLine: u31 = @divFloor(rom.address, BYTES_PER_LINE);
+
+                selectedLine = viewTopLine + line - 1;
+
+                const hexadecimalStartColumn: u31 = 8 + 1;
+                const hexadecimalEndColumn: u31 = hexadecimalStartColumn + (BYTES_PER_LINE * 2) + (BYTES_PER_LINE - 1) - 1;
+                const charactersStartColumn: u31 = 8 + 1 + (BYTES_PER_LINE * 2) + (BYTES_PER_LINE - 1) + 1;
+                const charactersEndColumn: u31 = charactersStartColumn + (BYTES_PER_LINE - 1);
+
+                if (column >= hexadecimalStartColumn and column <= hexadecimalEndColumn) {
+                    const byteIndex: u31 = @divFloor(column - 9, 3);
+                    const nibbleIndex: u31 = @mod(column, 3);
+
+                    if (nibbleIndex < 2) {
+                        selectedMode = SelectedMode.Hexadecimal;
+                        selectedNibble = @as(u1, @intCast(nibbleIndex));
+                        selectedColumn = @as(u8, @intCast(byteIndex));
+                    }
+                } else if (column >= charactersStartColumn and column <= charactersEndColumn) {
+                    const byteIndex: u31 = column - charactersStartColumn;
+
+                    selectedMode = SelectedMode.Character;
+                    selectedNibble = 0;
+                    selectedColumn = @as(u8, @intCast(byteIndex));
+                }
+            }
+        }
+    }
+
+    if (rl.isMouseButtonReleased(rl.MouseButton.left)) {
+        if (scrollbarClicked) {
+            scrollbarClicked = false;
         }
     }
 }
@@ -358,204 +564,7 @@ pub fn drawFrame() anyerror!void {
 
         try lineBuffer.append(0);
 
-        drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, @as(u31, @intCast(i + 1)) * lineHeight + LINE_SPACING_HALF, if (viewTopLine + @as(u31, @intCast(i)) == selectedLine) STYLE_TEXT_HIGHLIGHT else STYLE_TEXT);
-    }
-}
-
-pub fn configureFontAndScreen() anyerror!void {
-    if (font.glyphCount > 0) {
-        rl.unloadFont(font);
-    }
-
-    font = try rl.loadFontEx(FONT_FILE, fontSize, null);
-
-    if (font.glyphCount == 0) {
-        return ROMError.EmptyFont;
-    }
-
-    const fontMeasurements: rl.Vector2 = rl.measureTextEx(font, "K", @floatFromInt(font.baseSize), FONT_SPACING);
-
-    fontWidth = fontMeasurements.x;
-    fontHeight = fontMeasurements.y;
-
-    screenWidth = @as(u31, @intFromFloat(SCREEN_COLUMNS * fontWidth + (SCREEN_COLUMNS - 1) * FONT_SPACING));
-    screenHeight = @as(u31, @intFromFloat((SCREEN_LINES + 2) * fontHeight + (SCREEN_LINES + 2) * LINE_SPACING));
-    // Here it does not take off 1 because there are half line spacing    ^
-    // on top and half at bottom -----------------------------------------´
-
-    characterWidth = @intFromFloat(@round(fontMeasurements.x) + FONT_SPACING);
-    lineHeight = @intFromFloat(@round(fontMeasurements.y) + LINE_SPACING);
-    scrollbarHeight = @as(u31, @intFromFloat(@as(f32, @floatFromInt(lineHeight)) * SCROLLBAR_SCALE));
-    scrollbarHeightHalf = @divFloor(scrollbarHeight, 2);
-
-    rl.setWindowSize(screenWidth, screenHeight);
-}
-
-pub fn processShortcuts() anyerror!void {
-    if (rl.isKeyPressed(rl.KeyboardKey.down) or rl.isKeyPressedRepeat(rl.KeyboardKey.down)) {
-        try scrollBy(1, ScrollDirection.down);
-    } else if (rl.isKeyPressed(rl.KeyboardKey.up) or rl.isKeyPressedRepeat(rl.KeyboardKey.up)) {
-        try scrollBy(1, ScrollDirection.up);
-    } else if (rl.isKeyPressed(rl.KeyboardKey.page_down) or rl.isKeyPressedRepeat(rl.KeyboardKey.page_down)) {
-        try scrollBy(SCREEN_LINES, ScrollDirection.down);
-    } else if (rl.isKeyPressed(rl.KeyboardKey.page_up) or rl.isKeyPressedRepeat(rl.KeyboardKey.page_up)) {
-        try scrollBy(SCREEN_LINES, ScrollDirection.up);
-    } else if (rl.isKeyPressed(rl.KeyboardKey.left) or rl.isKeyPressedRepeat(rl.KeyboardKey.left)) {
-        if (selectedMode == SelectedMode.Character) {
-            try scrollBy(1, ScrollDirection.left);
-        } else {
-            if (selectedNibble == 1) {
-                selectedNibble = 0;
-            } else if (selectedLine > 0 or selectedColumn > 0) {
-                selectedNibble = 1;
-
-                try scrollBy(1, ScrollDirection.left);
-            }
-        }
-    } else if (rl.isKeyPressed(rl.KeyboardKey.right) or rl.isKeyPressedRepeat(rl.KeyboardKey.right)) {
-        if (selectedMode == SelectedMode.Character) {
-            try scrollBy(1, ScrollDirection.right);
-        } else {
-            if (selectedNibble == 0) {
-                selectedNibble = 1;
-            } else if (selectedLine < rom.lastLine or selectedColumn < BYTES_PER_LINE - 1) {
-                selectedNibble = 0;
-
-                try scrollBy(1, ScrollDirection.right);
-            }
-        }
-    } else if (rl.isKeyPressed(rl.KeyboardKey.tab) or rl.isKeyPressedRepeat(rl.KeyboardKey.tab)) {
-        selectedMode = @enumFromInt(@mod(@as(u2, @intFromEnum(selectedMode)) + 1, 2));
-        selectedNibble = 0;
-    } else if (rl.isKeyDown(rl.KeyboardKey.home)) {
-        selectedColumn = 0;
-        selectedNibble = 0;
-    } else if (rl.isKeyDown(rl.KeyboardKey.end)) {
-        selectedColumn = BYTES_PER_LINE - 1;
-        selectedNibble = 0;
-    }
-
-    if (rl.isKeyDown(rl.KeyboardKey.left_control)) {
-        if (rl.isKeyDown(rl.KeyboardKey.home)) {
-            selectedColumn = 0;
-            selectedNibble = 0;
-
-            try scrollBy(rom.lines, ScrollDirection.up);
-        } else if (rl.isKeyDown(rl.KeyboardKey.end)) {
-            try scrollBy(rom.lines, ScrollDirection.down);
-
-            selectedColumn = BYTES_PER_LINE - 1;
-            selectedNibble = 0;
-        } else if (rl.isKeyPressed(rl.KeyboardKey.equal)) {
-            fontSize = @min(fontSize + 1, FONT_SIZE_MAX);
-
-            try configureFontAndScreen();
-        } else if (rl.isKeyPressed(rl.KeyboardKey.minus)) {
-            fontSize = @max(FONT_SIZE_MIN, fontSize - 1);
-
-            try configureFontAndScreen();
-        }
-    }
-}
-
-pub fn scrollByScrollbar() anyerror!void {
-    const scrollbarLimitTop: u31 = lineHeight + scrollbarHeightHalf;
-    const scrollbarLimitBottom: u31 = screenHeight - lineHeight - scrollbarHeightHalf;
-    const mouseY: u31 = @as(u31, @intCast(std.math.clamp(rl.getMouseY(), scrollbarLimitTop, scrollbarLimitBottom))) - scrollbarLimitTop;
-    const scrollbarSpace: u31 = SCREEN_LINES * lineHeight - scrollbarHeight;
-    const scrollbarPercentage: f32 = @as(f32, @floatFromInt(mouseY)) / @as(f32, @floatFromInt(scrollbarSpace));
-    const scrolledLine: u31 = @as(u31, @intFromFloat(@as(f32, @floatFromInt(rom.lastLine)) * scrollbarPercentage));
-    const linesDifference: u31 = @as(u31, @intCast(@abs(@as(i32, @intCast(selectedLine)) - @as(i32, @intCast(scrolledLine)))));
-
-    if (scrolledLine < selectedLine) {
-        try scrollBy(linesDifference, ScrollDirection.up);
-    } else if (scrolledLine > selectedLine) {
-        try scrollBy(linesDifference, ScrollDirection.down);
-    }
-}
-
-pub fn processMouse() anyerror!void {
-    const wheel: f32 = rl.getMouseWheelMove();
-
-    if (wheel != 0.0) {
-        if (rl.isKeyDown(rl.KeyboardKey.left_control)) {
-            const amount: u31 = @as(u31, @intFromFloat(@abs(wheel)));
-
-            if (wheel < 0) {
-                fontSize = @max(FONT_SIZE_MIN, fontSize - amount);
-            } else {
-                fontSize = @min(fontSize + amount, FONT_SIZE_MAX);
-            }
-
-            try configureFontAndScreen();
-        } else {
-            const amount: u31 = @as(u31, @intFromFloat(@round(@abs(wheel) * 3)));
-
-            if (wheel < 0) {
-                try scrollBy(amount, ScrollDirection.down);
-            } else {
-                try scrollBy(amount, ScrollDirection.up);
-            }
-        }
-    }
-
-    if (rl.isMouseButtonDown(rl.MouseButton.left)) {
-        if (scrollbarClicked) {
-            try scrollByScrollbar();
-
-            return;
-        }
-
-        const mouseX: u31 = @max(0, rl.getMouseX());
-        const mouseY: u31 = @max(0, rl.getMouseY());
-        const line: u31 = @divFloor(mouseY, lineHeight);
-        const column: u31 = @divFloor(mouseX, characterWidth);
-
-        viewArea: {
-            if (line < 1 or line > SCREEN_LINES) {
-                break :viewArea;
-            }
-
-            if (column == SCREEN_COLUMNS - 1) {
-                scrollbarClicked = true;
-
-                try scrollByScrollbar();
-
-                break :viewArea;
-            } else {
-                const viewTopLine: u31 = @divFloor(rom.address, BYTES_PER_LINE);
-
-                selectedLine = viewTopLine + line - 1;
-
-                const hexadecimalStartColumn: u31 = 8 + 1;
-                const hexadecimalEndColumn: u31 = hexadecimalStartColumn + (BYTES_PER_LINE * 2) + (BYTES_PER_LINE - 1) - 1;
-                const charactersStartColumn: u31 = 8 + 1 + (BYTES_PER_LINE * 2) + (BYTES_PER_LINE - 1) + 1;
-                const charactersEndColumn: u31 = charactersStartColumn + (BYTES_PER_LINE - 1);
-
-                if (column >= hexadecimalStartColumn and column <= hexadecimalEndColumn) {
-                    const byteIndex: u31 = @divFloor(column - 9, 3);
-                    const nibbleIndex: u31 = @mod(column, 3);
-
-                    if (nibbleIndex < 2) {
-                        selectedMode = SelectedMode.Hexadecimal;
-                        selectedNibble = @as(u1, @intCast(nibbleIndex));
-                        selectedColumn = @as(u8, @intCast(byteIndex));
-                    }
-                } else if (column >= charactersStartColumn and column <= charactersEndColumn) {
-                    const byteIndex: u31 = column - charactersStartColumn;
-
-                    selectedMode = SelectedMode.Character;
-                    selectedNibble = 0;
-                    selectedColumn = @as(u8, @intCast(byteIndex));
-                }
-            }
-        }
-    }
-
-    if (rl.isMouseButtonReleased(rl.MouseButton.left)) {
-        if (scrollbarClicked) {
-            scrollbarClicked = false;
-        }
+        drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, @as(u31, @intCast(i + 1)) * lineHeight + LINE_SPACING_HALF, if (viewTopLine + @as(u31, @intCast(i)) == selectedLine) STYLE_TEXT_HIGHLIGHTED else STYLE_TEXT);
     }
 }
 
