@@ -1,6 +1,4 @@
 // TODO
-// Change all rl.loadFileData to use Zig equivalents
-// Change all rl.unloadFileData to use Zig equivalents
 // Add style's configuration
 // Add edit of contents
 // Add save of contents
@@ -55,7 +53,10 @@ const HEXADECIMAL_CHARACTERS: [22]u8 = .{
 const EditMode: type = enum {
     Character,
     Hexadecimal,
+    Length,
 };
+
+var editorMode: EditorMode = EditorMode.Edit;
 
 var fontSize: u31 = 20;
 var font: rl.Font = undefined;
@@ -74,6 +75,7 @@ var scrollbarClicked: bool = false;
 
 var HEAP: [HEAP_SIZE]u8 = undefined;
 var fba: std.heap.FixedBufferAllocator = undefined;
+var gpa: std.heap.GeneralPurposeAllocator(.{}) = undefined;
 
 var editLine: u31 = 0;
 var editColumn: u8 = 0;
@@ -92,6 +94,7 @@ const ROMError: type = error{
 
 const ROM: type = struct {
     data: []u8,
+    size: u64,
     lines: u31,
     lastLine: u31,
     address: u31,
@@ -99,12 +102,21 @@ const ROM: type = struct {
     symbolReplacements: ?std.AutoHashMap(u8, u8),
     typingReplacements: ?std.AutoHashMap(u8, u8),
 
-    pub fn init(filename: [:0]const u8) anyerror!ROM {
-        const data: []u8 = try rl.loadFileData(filename);
+    pub fn init(filename: []const u8) anyerror!ROM {
+        var romFile: std.fs.File = try std.fs.cwd().openFile(filename, .{});
+        defer romFile.close();
 
-        if (data.len == 0) {
+        const size: u64 = try romFile.getEndPos();
+
+        if (size == 0) {
             return ROMError.EmptyFile;
         }
+
+        const data: []u8 = try gpa.allocator().alloc(u8, size);
+
+        // const data: []u8 = try romFile.readToEndAlloc(gpa.allocator(), 16 * 1024 * 1024);
+
+        _ = try romFile.readAll(data);
 
         var symbols: [256]u8 = .{'.'} ** 256;
 
@@ -177,10 +189,11 @@ const ROM: type = struct {
             }
         }
 
-        const lines: u31 = @as(u31, @intCast(try std.math.divCeil(usize, data.len, BYTES_PER_LINE)));
+        const lines: u31 = @as(u31, @intCast(try std.math.divCeil(usize, size, BYTES_PER_LINE)));
 
         return ROM{
             .data = data,
+            .size = size,
             .address = 0,
             .lines = lines,
             .lastLine = lines - 1,
@@ -191,11 +204,11 @@ const ROM: type = struct {
     }
 
     pub fn deinit(self: *ROM) void {
-        if (self.data.len == 0) {
+        if (self.size == 0) {
             return;
         }
 
-        rl.unloadFileData(self.data);
+        gpa.allocator().free(self.data);
 
         if (self.symbolReplacements != null) {
             self.symbolReplacements.?.deinit();
@@ -215,6 +228,12 @@ const ScrollDirection: type = enum {
     left,
     right,
     up,
+};
+
+const EditorMode: type = enum {
+    Command,
+    Edit,
+    Length,
 };
 
 var rom: ROM = undefined;
@@ -244,8 +263,8 @@ pub fn configureFontAndScreen() anyerror!void {
 
     screenWidth = @as(u31, @intFromFloat(SCREEN_COLUMNS * fontWidth + (SCREEN_COLUMNS - 1) * FONT_SPACING));
     screenHeight = @as(u31, @intFromFloat((SCREEN_LINES + 2) * fontHeight + (SCREEN_LINES + 2) * LINE_SPACING));
-    // Here it does not take off 1 because there are half line spacing    ^
-    // on top and half at bottom -----------------------------------------´
+    // Here it does not take off 1 because there are half line spacing      ^
+    // on top and half at bottom -------------------------------------------´
 
     characterWidth = @intFromFloat(@round(fontMeasurements.x) + FONT_SPACING);
     lineHeight = @intFromFloat(@round(fontMeasurements.y) + LINE_SPACING);
@@ -255,7 +274,32 @@ pub fn configureFontAndScreen() anyerror!void {
     rl.setWindowSize(screenWidth, screenHeight);
 }
 
-pub fn scrollBy(amount: u31, direction: ScrollDirection) anyerror!void {
+pub fn drawCommandFrame() anyerror!void {
+    // Clear background
+    rl.clearBackground(STYLE_BACKGROUND);
+
+    // Draw top bar
+    rl.drawRectangle(0, 0, screenWidth, lineHeight, STYLE_HEADER_BACKGROUND);
+
+    lineBuffer.clearRetainingCapacity();
+
+    try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "RayxEdigor", .width = SCREEN_COLUMNS });
+    try lineBuffer.append(0);
+
+    drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, LINE_SPACING_HALF, STYLE_HEADER_TEXT);
+
+    // Draw status bar
+    rl.drawRectangle(0, screenHeight - lineHeight, screenWidth, lineHeight, STYLE_STATUSBAR_BACKGROUND);
+
+    lineBuffer.clearRetainingCapacity();
+
+    try lineBuffer.appendSlice(" Command: ");
+    try lineBuffer.append(0);
+
+    drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, screenHeight - lineHeight + LINE_SPACING_HALF, STYLE_STATUSBAR_TEXT);
+}
+
+pub fn scrollEditBy(amount: u31, direction: ScrollDirection) anyerror!void {
     if (amount == 0) {
         return;
     }
@@ -295,7 +339,7 @@ pub fn scrollBy(amount: u31, direction: ScrollDirection) anyerror!void {
             } else if (editLine > 0) {
                 editColumn = BYTES_PER_LINE - 1;
 
-                try scrollBy(1, ScrollDirection.up);
+                try scrollEditBy(1, ScrollDirection.up);
             }
         } else {
             if (editColumn < BYTES_PER_LINE - 1) {
@@ -303,13 +347,13 @@ pub fn scrollBy(amount: u31, direction: ScrollDirection) anyerror!void {
             } else if (editLine < rom.lastLine) {
                 editColumn = 0;
 
-                try scrollBy(1, ScrollDirection.down);
+                try scrollEditBy(1, ScrollDirection.down);
             }
         }
     }
 }
 
-pub fn scrollByScrollbar() anyerror!void {
+pub fn scrollEditByScrollbar() anyerror!void {
     const scrollbarLimitTop: u31 = lineHeight + scrollbarHeightHalf;
     const scrollbarLimitBottom: u31 = screenHeight - lineHeight - scrollbarHeightHalf;
     const mouseY: u31 = @as(u31, @intCast(std.math.clamp(rl.getMouseY(), scrollbarLimitTop, scrollbarLimitBottom))) - scrollbarLimitTop;
@@ -319,47 +363,47 @@ pub fn scrollByScrollbar() anyerror!void {
     const linesDifference: u31 = @as(u31, @intCast(@abs(@as(i32, @intCast(editLine)) - @as(i32, @intCast(scrolledLine)))));
 
     if (scrolledLine < editLine) {
-        try scrollBy(linesDifference, ScrollDirection.up);
+        try scrollEditBy(linesDifference, ScrollDirection.up);
     } else if (scrolledLine > editLine) {
-        try scrollBy(linesDifference, ScrollDirection.down);
+        try scrollEditBy(linesDifference, ScrollDirection.down);
     }
 }
 
-pub fn processShortcuts() anyerror!void {
+pub fn processEditShortcuts() anyerror!void {
     if (rl.isKeyPressed(rl.KeyboardKey.down) or rl.isKeyPressedRepeat(rl.KeyboardKey.down)) {
-        try scrollBy(1, ScrollDirection.down);
+        try scrollEditBy(1, ScrollDirection.down);
     } else if (rl.isKeyPressed(rl.KeyboardKey.up) or rl.isKeyPressedRepeat(rl.KeyboardKey.up)) {
-        try scrollBy(1, ScrollDirection.up);
+        try scrollEditBy(1, ScrollDirection.up);
     } else if (rl.isKeyPressed(rl.KeyboardKey.page_down) or rl.isKeyPressedRepeat(rl.KeyboardKey.page_down)) {
-        try scrollBy(SCREEN_LINES, ScrollDirection.down);
+        try scrollEditBy(SCREEN_LINES, ScrollDirection.down);
     } else if (rl.isKeyPressed(rl.KeyboardKey.page_up) or rl.isKeyPressedRepeat(rl.KeyboardKey.page_up)) {
-        try scrollBy(SCREEN_LINES, ScrollDirection.up);
+        try scrollEditBy(SCREEN_LINES, ScrollDirection.up);
     } else if (rl.isKeyPressed(rl.KeyboardKey.left) or rl.isKeyPressedRepeat(rl.KeyboardKey.left)) {
         if (editMode == EditMode.Character) {
-            try scrollBy(1, ScrollDirection.left);
+            try scrollEditBy(1, ScrollDirection.left);
         } else {
             if (editNibble == 1) {
                 editNibble = 0;
             } else if (editLine > 0 or editColumn > 0) {
                 editNibble = 1;
 
-                try scrollBy(1, ScrollDirection.left);
+                try scrollEditBy(1, ScrollDirection.left);
             }
         }
     } else if (rl.isKeyPressed(rl.KeyboardKey.right) or rl.isKeyPressedRepeat(rl.KeyboardKey.right)) {
         if (editMode == EditMode.Character) {
-            try scrollBy(1, ScrollDirection.right);
+            try scrollEditBy(1, ScrollDirection.right);
         } else {
             if (editNibble == 0) {
                 editNibble = 1;
             } else if (editLine < rom.lastLine or editColumn < BYTES_PER_LINE - 1) {
                 editNibble = 0;
 
-                try scrollBy(1, ScrollDirection.right);
+                try scrollEditBy(1, ScrollDirection.right);
             }
         }
     } else if (rl.isKeyPressed(rl.KeyboardKey.tab) or rl.isKeyPressedRepeat(rl.KeyboardKey.tab)) {
-        editMode = @enumFromInt(@mod(@as(u2, @intFromEnum(editMode)) + 1, 2));
+        editMode = @enumFromInt(@mod(@as(u2, @intFromEnum(editMode)) + 1, @intFromEnum(EditMode.Length)));
         editNibble = 0;
     } else if (rl.isKeyDown(rl.KeyboardKey.home)) {
         editColumn = 0;
@@ -374,9 +418,9 @@ pub fn processShortcuts() anyerror!void {
             editColumn = 0;
             editNibble = 0;
 
-            try scrollBy(rom.lines, ScrollDirection.up);
+            try scrollEditBy(rom.lines, ScrollDirection.up);
         } else if (rl.isKeyDown(rl.KeyboardKey.end)) {
-            try scrollBy(rom.lines, ScrollDirection.down);
+            try scrollEditBy(rom.lines, ScrollDirection.down);
 
             editColumn = BYTES_PER_LINE - 1;
             editNibble = 0;
@@ -392,7 +436,7 @@ pub fn processShortcuts() anyerror!void {
     }
 }
 
-pub fn processMouse() anyerror!void {
+pub fn processEditMouse() anyerror!void {
     const wheel: f32 = rl.getMouseWheelMove();
 
     if (wheel != 0.0) {
@@ -410,16 +454,16 @@ pub fn processMouse() anyerror!void {
             const amount: u31 = @as(u31, @intFromFloat(@round(@abs(wheel) * 3)));
 
             if (wheel < 0) {
-                try scrollBy(amount, ScrollDirection.down);
+                try scrollEditBy(amount, ScrollDirection.down);
             } else {
-                try scrollBy(amount, ScrollDirection.up);
+                try scrollEditBy(amount, ScrollDirection.up);
             }
         }
     }
 
     if (rl.isMouseButtonDown(rl.MouseButton.left)) {
         if (scrollbarClicked) {
-            try scrollByScrollbar();
+            try scrollEditByScrollbar();
 
             return;
         }
@@ -437,7 +481,7 @@ pub fn processMouse() anyerror!void {
             if (column == SCREEN_COLUMNS - 1) {
                 scrollbarClicked = true;
 
-                try scrollByScrollbar();
+                try scrollEditByScrollbar();
 
                 break :viewArea;
             } else {
@@ -477,7 +521,7 @@ pub fn processMouse() anyerror!void {
     }
 }
 
-pub fn drawFrame() anyerror!void {
+pub fn drawEditFrame() anyerror!void {
     const viewTopLine: u31 = @divFloor(rom.address, BYTES_PER_LINE);
 
     // Clear background
@@ -538,7 +582,7 @@ pub fn drawFrame() anyerror!void {
         const address: u31 = rom.address + BYTES_PER_LINE * @as(u31, @intCast(i));
         var byteIndex: usize = undefined;
 
-        if (address >= rom.data.len) {
+        if (address >= rom.size) {
             continue;
         }
 
@@ -549,7 +593,7 @@ pub fn drawFrame() anyerror!void {
         for (0..BYTES_PER_LINE) |j| {
             byteIndex = @as(usize, @intCast(address)) + j;
 
-            if (byteIndex < rom.data.len) {
+            if (byteIndex < rom.size) {
                 try lineBuffer.writer().print("{X:0>2} ", .{rom.data[byteIndex]});
             } else {
                 try lineBuffer.appendSlice("   ");
@@ -559,7 +603,7 @@ pub fn drawFrame() anyerror!void {
         for (0..BYTES_PER_LINE) |j| {
             byteIndex = @as(usize, @intCast(address)) + j;
 
-            if (byteIndex < rom.data.len) {
+            if (byteIndex < rom.size) {
                 try lineBuffer.append(rom.symbols[rom.data[byteIndex]]);
             } else {
                 try lineBuffer.append(' ');
@@ -574,6 +618,7 @@ pub fn drawFrame() anyerror!void {
 
 pub fn main() anyerror!u8 {
     fba = std.heap.FixedBufferAllocator.init(&HEAP);
+    gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
     headerBuffer = std.ArrayList(u8).init(fba.allocator());
     defer headerBuffer.deinit();
@@ -596,6 +641,8 @@ pub fn main() anyerror!u8 {
     rl.initWindow(814, 640, "RayxEdigor");
     defer rl.closeWindow();
 
+    rl.setExitKey(rl.KeyboardKey.null);
+
     try configureFontAndScreen();
     defer if (font.glyphCount > 0) rl.unloadFont(font);
 
@@ -608,10 +655,18 @@ pub fn main() anyerror!u8 {
         rl.beginDrawing();
         defer rl.endDrawing();
 
-        try processShortcuts();
-        try processMouse();
+        if (rl.isKeyPressed(rl.KeyboardKey.escape)) {
+            editorMode = @enumFromInt(@mod(@as(u2, @intFromEnum(editorMode)) + 1, @intFromEnum(EditorMode.Length)));
+        }
 
-        try drawFrame();
+        if (editorMode == EditorMode.Command) {
+            try drawCommandFrame();
+        } else if (editorMode == EditorMode.Edit) {
+            try processEditShortcuts();
+            try processEditMouse();
+
+            try drawEditFrame();
+        }
     }
 
     return 0;
