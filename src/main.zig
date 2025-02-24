@@ -46,7 +46,13 @@ const HEAP_SIZE: u31 = 4096;
 
 const SCROLLBAR_SCALE: f32 = 2.1;
 
-const SelectedMode: type = enum {
+const HEXADECIMAL_CHARACTERS: [22]u8 = .{
+    '0', '1', '2', '3', '4', '5', '6', '7',
+    '8', '9', 'A', 'B', 'C', 'D', 'E', 'F',
+    'a', 'b', 'c', 'd', 'e', 'f',
+};
+
+const EditMode: type = enum {
     Character,
     Hexadecimal,
 };
@@ -69,10 +75,10 @@ var scrollbarClicked: bool = false;
 var HEAP: [HEAP_SIZE]u8 = undefined;
 var fba: std.heap.FixedBufferAllocator = undefined;
 
-var selectedLine: u31 = 0;
-var selectedColumn: u8 = 0;
-var selectedNibble: u1 = 0;
-var selectedMode: SelectedMode = SelectedMode.Character;
+var editLine: u31 = 0;
+var editColumn: u8 = 0;
+var editNibble: u1 = 0;
+var editMode: EditMode = EditMode.Character;
 
 var headerBuffer: std.ArrayList(u8) = undefined;
 var lineBuffer: std.ArrayList(u8) = undefined;
@@ -121,8 +127,6 @@ const ROM: type = struct {
         };
 
         if (tableExists) {
-            const hexadecimalCharacters: [22]u8 = .{ '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F', 'a', 'b', 'c', 'd', 'e', 'f' };
-
             symbolReplacements = std.AutoHashMap(u8, u8).init(fba.allocator());
             typingReplacements = std.AutoHashMap(u8, u8).init(fba.allocator());
 
@@ -145,11 +149,11 @@ const ROM: type = struct {
                     continue;
                 }
 
-                if (!std.mem.containsAtLeast(u8, &hexadecimalCharacters, 1, &.{trimmedLine[0]})) {
+                if (!std.mem.containsAtLeast(u8, &HEXADECIMAL_CHARACTERS, 1, &.{trimmedLine[0]})) {
                     continue;
                 }
 
-                if (!std.mem.containsAtLeast(u8, &hexadecimalCharacters, 1, &.{trimmedLine[1]})) {
+                if (!std.mem.containsAtLeast(u8, &HEXADECIMAL_CHARACTERS, 1, &.{trimmedLine[1]})) {
                     continue;
                 }
 
@@ -263,9 +267,9 @@ pub fn scrollBy(amount: u31, direction: ScrollDirection) anyerror!void {
         var newLine: u31 = undefined;
 
         if (direction == ScrollDirection.down) {
-            newLine = @min(selectedLine + amount, rom.lastLine);
+            newLine = @min(editLine + amount, rom.lastLine);
         } else if (direction == ScrollDirection.up) {
-            const iSelectedLine: i32 = selectedLine;
+            const iSelectedLine: i32 = editLine;
             const iNewLine: i32 = @max(0, iSelectedLine - amount);
 
             newLine = @as(u31, @intCast(iNewLine));
@@ -283,21 +287,21 @@ pub fn scrollBy(amount: u31, direction: ScrollDirection) anyerror!void {
             }
         }
 
-        selectedLine = newLine;
+        editLine = newLine;
     } else {
         if (direction == ScrollDirection.left) {
-            if (selectedColumn > 0) {
-                selectedColumn -= 1;
-            } else if (selectedLine > 0) {
-                selectedColumn = BYTES_PER_LINE - 1;
+            if (editColumn > 0) {
+                editColumn -= 1;
+            } else if (editLine > 0) {
+                editColumn = BYTES_PER_LINE - 1;
 
                 try scrollBy(1, ScrollDirection.up);
             }
         } else {
-            if (selectedColumn < BYTES_PER_LINE - 1) {
-                selectedColumn += 1;
-            } else if (selectedLine < rom.lastLine) {
-                selectedColumn = 0;
+            if (editColumn < BYTES_PER_LINE - 1) {
+                editColumn += 1;
+            } else if (editLine < rom.lastLine) {
+                editColumn = 0;
 
                 try scrollBy(1, ScrollDirection.down);
             }
@@ -312,11 +316,11 @@ pub fn scrollByScrollbar() anyerror!void {
     const scrollbarSpace: u31 = SCREEN_LINES * lineHeight - scrollbarHeight;
     const scrollbarPercentage: f32 = @as(f32, @floatFromInt(mouseY)) / @as(f32, @floatFromInt(scrollbarSpace));
     const scrolledLine: u31 = @as(u31, @intFromFloat(@as(f32, @floatFromInt(rom.lastLine)) * scrollbarPercentage));
-    const linesDifference: u31 = @as(u31, @intCast(@abs(@as(i32, @intCast(selectedLine)) - @as(i32, @intCast(scrolledLine)))));
+    const linesDifference: u31 = @as(u31, @intCast(@abs(@as(i32, @intCast(editLine)) - @as(i32, @intCast(scrolledLine)))));
 
-    if (scrolledLine < selectedLine) {
+    if (scrolledLine < editLine) {
         try scrollBy(linesDifference, ScrollDirection.up);
-    } else if (scrolledLine > selectedLine) {
+    } else if (scrolledLine > editLine) {
         try scrollBy(linesDifference, ScrollDirection.down);
     }
 }
@@ -331,51 +335,51 @@ pub fn processShortcuts() anyerror!void {
     } else if (rl.isKeyPressed(rl.KeyboardKey.page_up) or rl.isKeyPressedRepeat(rl.KeyboardKey.page_up)) {
         try scrollBy(SCREEN_LINES, ScrollDirection.up);
     } else if (rl.isKeyPressed(rl.KeyboardKey.left) or rl.isKeyPressedRepeat(rl.KeyboardKey.left)) {
-        if (selectedMode == SelectedMode.Character) {
+        if (editMode == EditMode.Character) {
             try scrollBy(1, ScrollDirection.left);
         } else {
-            if (selectedNibble == 1) {
-                selectedNibble = 0;
-            } else if (selectedLine > 0 or selectedColumn > 0) {
-                selectedNibble = 1;
+            if (editNibble == 1) {
+                editNibble = 0;
+            } else if (editLine > 0 or editColumn > 0) {
+                editNibble = 1;
 
                 try scrollBy(1, ScrollDirection.left);
             }
         }
     } else if (rl.isKeyPressed(rl.KeyboardKey.right) or rl.isKeyPressedRepeat(rl.KeyboardKey.right)) {
-        if (selectedMode == SelectedMode.Character) {
+        if (editMode == EditMode.Character) {
             try scrollBy(1, ScrollDirection.right);
         } else {
-            if (selectedNibble == 0) {
-                selectedNibble = 1;
-            } else if (selectedLine < rom.lastLine or selectedColumn < BYTES_PER_LINE - 1) {
-                selectedNibble = 0;
+            if (editNibble == 0) {
+                editNibble = 1;
+            } else if (editLine < rom.lastLine or editColumn < BYTES_PER_LINE - 1) {
+                editNibble = 0;
 
                 try scrollBy(1, ScrollDirection.right);
             }
         }
     } else if (rl.isKeyPressed(rl.KeyboardKey.tab) or rl.isKeyPressedRepeat(rl.KeyboardKey.tab)) {
-        selectedMode = @enumFromInt(@mod(@as(u2, @intFromEnum(selectedMode)) + 1, 2));
-        selectedNibble = 0;
+        editMode = @enumFromInt(@mod(@as(u2, @intFromEnum(editMode)) + 1, 2));
+        editNibble = 0;
     } else if (rl.isKeyDown(rl.KeyboardKey.home)) {
-        selectedColumn = 0;
-        selectedNibble = 0;
+        editColumn = 0;
+        editNibble = 0;
     } else if (rl.isKeyDown(rl.KeyboardKey.end)) {
-        selectedColumn = BYTES_PER_LINE - 1;
-        selectedNibble = 0;
+        editColumn = BYTES_PER_LINE - 1;
+        editNibble = 0;
     }
 
     if (rl.isKeyDown(rl.KeyboardKey.left_control)) {
         if (rl.isKeyDown(rl.KeyboardKey.home)) {
-            selectedColumn = 0;
-            selectedNibble = 0;
+            editColumn = 0;
+            editNibble = 0;
 
             try scrollBy(rom.lines, ScrollDirection.up);
         } else if (rl.isKeyDown(rl.KeyboardKey.end)) {
             try scrollBy(rom.lines, ScrollDirection.down);
 
-            selectedColumn = BYTES_PER_LINE - 1;
-            selectedNibble = 0;
+            editColumn = BYTES_PER_LINE - 1;
+            editNibble = 0;
         } else if (rl.isKeyPressed(rl.KeyboardKey.equal)) {
             fontSize = @min(fontSize + 1, FONT_SIZE_MAX);
 
@@ -439,7 +443,7 @@ pub fn processMouse() anyerror!void {
             } else {
                 const viewTopLine: u31 = @divFloor(rom.address, BYTES_PER_LINE);
 
-                selectedLine = viewTopLine + line - 1;
+                editLine = viewTopLine + line - 1;
 
                 const hexadecimalStartColumn: u31 = 8 + 1;
                 const hexadecimalEndColumn: u31 = hexadecimalStartColumn + (BYTES_PER_LINE * 2) + (BYTES_PER_LINE - 1) - 1;
@@ -451,16 +455,16 @@ pub fn processMouse() anyerror!void {
                     const nibbleIndex: u31 = @mod(column, 3);
 
                     if (nibbleIndex < 2) {
-                        selectedMode = SelectedMode.Hexadecimal;
-                        selectedNibble = @as(u1, @intCast(nibbleIndex));
-                        selectedColumn = @as(u8, @intCast(byteIndex));
+                        editMode = EditMode.Hexadecimal;
+                        editNibble = @as(u1, @intCast(nibbleIndex));
+                        editColumn = @as(u8, @intCast(byteIndex));
                     }
                 } else if (column >= charactersStartColumn and column <= charactersEndColumn) {
                     const byteIndex: u31 = column - charactersStartColumn;
 
-                    selectedMode = SelectedMode.Character;
-                    selectedNibble = 0;
-                    selectedColumn = @as(u8, @intCast(byteIndex));
+                    editMode = EditMode.Character;
+                    editNibble = 0;
+                    editColumn = @as(u8, @intCast(byteIndex));
                 }
             }
         }
@@ -491,40 +495,40 @@ pub fn drawFrame() anyerror!void {
 
     try lineBuffer.appendSlice(" Lin: ");
     try lineBuffer.writer().print("{[value]d:[width]}/{[total]d} ({[percentage]d:6.2}%)", .{
-        .value = selectedLine + 1,
+        .value = editLine + 1,
         .total = rom.lines,
-        .percentage = @as(f32, @floatFromInt(selectedLine)) * 100.0 / @as(f32, @floatFromInt(rom.lastLine)),
+        .percentage = @as(f32, @floatFromInt(editLine)) * 100.0 / @as(f32, @floatFromInt(rom.lastLine)),
         .width = std.math.log10(rom.lines) + 1,
     });
     try lineBuffer.appendSlice(" Col: ");
-    try lineBuffer.writer().print("{X:0>2}", .{selectedColumn});
+    try lineBuffer.writer().print("{X:0>2}", .{editColumn});
     try lineBuffer.appendSlice(" Addr: ");
-    try lineBuffer.writer().print("{X:0>8}", .{selectedLine * BYTES_PER_LINE + selectedColumn});
+    try lineBuffer.writer().print("{X:0>8}", .{editLine * BYTES_PER_LINE + editColumn});
     try lineBuffer.appendSlice(" Mode: ");
-    try lineBuffer.writer().print("{s}", .{if (selectedMode == SelectedMode.Character) "Character" else "Hexadecimal"});
+    try lineBuffer.writer().print("{s}", .{if (editMode == EditMode.Character) "Character" else "Hexadecimal"});
     try lineBuffer.append(0);
 
     drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, screenHeight - lineHeight + LINE_SPACING_HALF, STYLE_STATUSBAR_TEXT);
 
     // Draw selected highlight
-    rl.drawRectangle(0, (selectedLine - viewTopLine + 1) * lineHeight, screenWidth - characterWidth, lineHeight, STYLE_LINE_HIGHLIGHT);
+    rl.drawRectangle(0, (editLine - viewTopLine + 1) * lineHeight, screenWidth - characterWidth, lineHeight, STYLE_LINE_HIGHLIGHT);
 
-    const characterHighlightY: i32 = (selectedLine - viewTopLine + 1) * lineHeight;
+    const editHighlightY: i32 = (editLine - viewTopLine + 1) * lineHeight;
+    const editHexadecimalHighlightX: i32 = (8 + 1 + (editColumn * 3) + editNibble) * characterWidth;
+    const editCharacterHighlightX: i32 = (8 + 1 + (2 * BYTES_PER_LINE) + (BYTES_PER_LINE - 1) + 1 + editColumn) * characterWidth;
 
-    var characterHighlightX: i32 = undefined;
-
-    if (selectedMode == SelectedMode.Character) {
-        characterHighlightX = (8 + 1 + (2 * BYTES_PER_LINE) + (BYTES_PER_LINE - 1) + 1 + selectedColumn) * characterWidth;
+    if (editMode == EditMode.Character) {
+        rl.drawRectangleLines(editHexadecimalHighlightX, editHighlightY, characterWidth * 2, lineHeight, rl.Color.black);
+        rl.drawRectangle(editCharacterHighlightX, editHighlightY, characterWidth, lineHeight, STYLE_CHARACTER_HIGHLIGHT);
     } else {
-        characterHighlightX = (8 + 1 + (selectedColumn * 3) + selectedNibble) * characterWidth;
+        rl.drawRectangle(editHexadecimalHighlightX, editHighlightY, characterWidth, lineHeight, STYLE_CHARACTER_HIGHLIGHT);
+        rl.drawRectangleLines(editCharacterHighlightX, editHighlightY, characterWidth, lineHeight, rl.Color.black);
     }
-
-    rl.drawRectangle(characterHighlightX, characterHighlightY, characterWidth, lineHeight, STYLE_CHARACTER_HIGHLIGHT);
 
     // Draw scrollbar
     const scrollbarSpace: u31 = SCREEN_LINES * lineHeight - scrollbarHeight;
     const scrollbarX: u31 = screenWidth - characterWidth;
-    const scrollbarY: u31 = @as(u31, @intFromFloat(@as(f32, @floatFromInt(selectedLine)) * @as(f32, @floatFromInt(scrollbarSpace)) / @as(f32, @floatFromInt(rom.lastLine)) + @as(f32, @floatFromInt(lineHeight))));
+    const scrollbarY: u31 = @as(u31, @intFromFloat(@as(f32, @floatFromInt(editLine)) * @as(f32, @floatFromInt(scrollbarSpace)) / @as(f32, @floatFromInt(rom.lastLine)) + @as(f32, @floatFromInt(lineHeight))));
 
     rl.drawRectangle(screenWidth - characterWidth, lineHeight, characterWidth, SCREEN_LINES * lineHeight, STYLE_SCROLLBAR_BACKGROUND);
     rl.drawRectangle(scrollbarX, scrollbarY, characterWidth, scrollbarHeight, STYLE_SCROLLBAR_FOREGROUND);
@@ -564,7 +568,7 @@ pub fn drawFrame() anyerror!void {
 
         try lineBuffer.append(0);
 
-        drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, @as(u31, @intCast(i + 1)) * lineHeight + LINE_SPACING_HALF, if (viewTopLine + @as(u31, @intCast(i)) == selectedLine) STYLE_TEXT_HIGHLIGHTED else STYLE_TEXT);
+        drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, @as(u31, @intCast(i + 1)) * lineHeight + LINE_SPACING_HALF, if (viewTopLine + @as(u31, @intCast(i)) == editLine) STYLE_TEXT_HIGHLIGHTED else STYLE_TEXT);
     }
 }
 
