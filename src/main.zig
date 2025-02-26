@@ -207,11 +207,9 @@ const ROM: type = struct {
     }
 
     pub fn deinit(self: *ROM) void {
-        if (self.size == 0) {
-            return;
+        if (self.size > 0) {
+            gpa.allocator().free(self.data);
         }
-
-        gpa.allocator().free(self.data);
 
         if (self.symbolReplacements != null) {
             self.symbolReplacements.?.deinit();
@@ -222,7 +220,14 @@ const ROM: type = struct {
         }
 
         self.address = 0;
+        self.data = undefined;
+        self.filename = undefined;
+        self.lastLine = 0;
         self.lines = 0;
+        self.size = 0;
+        self.symbols = undefined;
+        self.symbolReplacements = null;
+        self.typingReplacements = null;
     }
 };
 
@@ -449,6 +454,14 @@ pub fn processCommandKeyboard() anyerror!void {
         }
 
         return;
+    } else if (rl.isKeyPressed(rl.KeyboardKey.enter)) {
+        if (commandHandler.mode == .Open) {
+            rom.deinit();
+
+            rom = try ROM.init(&commandHandler.buffer.data);
+
+            editorMode = .Edit;
+        }
     }
 
     if (commandHandler.buffer.mode == .Insert and commandHandler.buffer.count == INPUT_BUFFER_SIZE) {
