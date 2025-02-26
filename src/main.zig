@@ -1,6 +1,6 @@
 // TODO
 // Add style's configuration
-// Add relative search
+// Fix u8 -> i8 in relative search
 // Make input have a scroll view, limiting what is being seen on the screen and drawing caret properly
 
 const std = @import("std");
@@ -355,6 +355,14 @@ pub fn configureFontAndScreen() anyerror!void {
 }
 
 pub fn searchData(direction: SearchDirection, retry: bool) anyerror!void {
+    if (commandHandler.buffer.count < 1) {
+        return;
+    }
+
+    if (commandHandler.buffer.count > rom.size) {
+        return;
+    }
+
     const searchNeedle: []const u8 = commandHandler.buffer.data[0..commandHandler.buffer.count];
     const searchStart: u31 = if (!retry) editLine * BYTES_PER_LINE + editColumn + 1 else 0;
     const searchEnd: u31 = if (!retry) editLine * BYTES_PER_LINE + editColumn + @as(u31, @intCast(searchNeedle.len)) - 1 else @as(u31, @intCast(rom.size));
@@ -377,6 +385,94 @@ pub fn searchData(direction: SearchDirection, retry: bool) anyerror!void {
 
     if (direction == .Forward) {
         foundAtIndex = foundAtIndex.? + searchStart;
+    }
+
+    const foundAtLine: u31 = @as(u31, @intCast(@divFloor(foundAtIndex.?, BYTES_PER_LINE)));
+    const foundAtColumn: u8 = @as(u8, @intCast(@mod(foundAtIndex.?, BYTES_PER_LINE)));
+
+    if (foundAtLine > editLine) {
+        try scrollEditBy(foundAtLine - editLine, .Down);
+    } else if (foundAtLine < editLine) {
+        try scrollEditBy(editLine - foundAtLine, .Up);
+    }
+
+    editColumn = foundAtColumn;
+    editNibble = 0;
+}
+
+pub fn relativeSearchData(direction: SearchDirection, retry: bool) anyerror!void {
+    if (commandHandler.buffer.count < 2) {
+        return;
+    }
+
+    if (commandHandler.buffer.count > rom.size) {
+        return;
+    }
+
+    const searchNeedle: []const u8 = commandHandler.buffer.data[0..commandHandler.buffer.count];
+    const searchStart: u31 = if (!retry) editLine * BYTES_PER_LINE + editColumn + 1 else 0;
+    const searchEnd: u31 = if (!retry) editLine * BYTES_PER_LINE + editColumn + @as(u31, @intCast(searchNeedle.len)) - 1 - 1 else @as(u31, @intCast(rom.size));
+
+    var relativeDifferences: [INPUT_BUFFER_SIZE - 2]i8 = .{0} ** (INPUT_BUFFER_SIZE - 2);
+
+    for (1..commandHandler.buffer.count) |i| {
+        relativeDifferences[i - 1] = @as(i8, @intCast(commandHandler.buffer.data[i])) - @as(i8, @intCast(commandHandler.buffer.data[i - 1]));
+    }
+
+    var foundAtIndex: ?usize = null;
+
+    if (direction == .Forward) {
+        for (searchStart..rom.size - (commandHandler.buffer.count - 1)) |i| {
+            var found: bool = true;
+
+            for (0..commandHandler.buffer.count - 1) |j| {
+                const difference: i8 = @as(i8, @intCast(rom.data[i + j + 1])) - @as(i8, @intCast(rom.data[i + j]));
+
+                if (difference != relativeDifferences[j]) {
+                    found = false;
+
+                    break;
+                }
+            }
+
+            if (found) {
+                foundAtIndex = i;
+
+                break;
+            }
+        }
+    } else {
+        var i: usize = searchEnd;
+
+        while (i >= (commandHandler.buffer.count - 1)) {
+            var found: bool = true;
+
+            for (0..commandHandler.buffer.count - 1) |j| {
+                const difference: i8 = @as(i8, @intCast(rom.data[i - (commandHandler.buffer.count - 1) + j + 1])) - @as(i8, @intCast(rom.data[i - (commandHandler.buffer.count - 1) + j]));
+
+                if (difference != relativeDifferences[j]) {
+                    found = false;
+
+                    break;
+                }
+            }
+
+            if (found) {
+                foundAtIndex = i - (commandHandler.buffer.count - 1) + 1 + 1;
+
+                break;
+            }
+
+            i -= 1;
+        }
+    }
+
+    if (foundAtIndex == null) {
+        if (!retry) {
+            try relativeSearchData(direction, true);
+        }
+
+        return;
     }
 
     const foundAtLine: u31 = @as(u31, @intCast(@divFloor(foundAtIndex.?, BYTES_PER_LINE)));
@@ -506,6 +602,8 @@ pub fn processCommandKeyboard() anyerror!void {
             try romFile.writeAll(rom.data);
         } else if (commandHandler.mode == .Search and rom.size > 0) {
             try searchData(.Forward, false);
+        } else if (commandHandler.mode == .RelativeSearch and rom.size > 0) {
+            try relativeSearchData(.Forward, false);
         }
 
         editorMode = .Edit;
@@ -804,9 +902,11 @@ pub fn processEditShortcuts() anyerror!void {
         }
     }
 
-    if ((commandHandler.mode == .Search or commandHandler.mode == .RelativeSearch) and commandHandler.buffer.count > 0) {
-        if (rl.isKeyPressed(rl.KeyboardKey.f3)) {
+    if ((rl.isKeyPressed(rl.KeyboardKey.f3) or rl.isKeyPressedRepeat(rl.KeyboardKey.f3)) and (commandHandler.mode == .Search or commandHandler.mode == .RelativeSearch) and commandHandler.buffer.count > 0) {
+        if (commandHandler.mode == .Search) {
             try searchData(if (rl.isKeyDown(rl.KeyboardKey.left_shift)) .Backward else .Forward, false);
+        } else if (commandHandler.mode == .RelativeSearch) {
+            try relativeSearchData(if (rl.isKeyDown(rl.KeyboardKey.left_shift)) .Backward else .Forward, false);
         }
     }
 }
