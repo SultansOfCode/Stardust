@@ -1,7 +1,5 @@
 // TODO
 // Add style's configuration
-// Add save of contents
-// Add search
 // Add relative search
 // Make input have a scroll view, limiting what is being seen on the screen and drawing caret properly
 
@@ -231,11 +229,18 @@ const ROM: type = struct {
     }
 };
 
+var rom: ROM = std.mem.zeroes(ROM);
+
 const ScrollDirection: type = enum {
-    down,
-    left,
-    right,
-    up,
+    Down,
+    Left,
+    Right,
+    Up,
+};
+
+const SearchDirection: type = enum {
+    Backward,
+    Forward,
 };
 
 const EditorMode: type = enum {
@@ -244,7 +249,6 @@ const EditorMode: type = enum {
 };
 
 const CommandMode: type = enum {
-    None,
     Menu,
     Open,
     RelativeSearch,
@@ -296,26 +300,23 @@ const InputBuffer: type = struct {
 
 const CommandHandler: type = struct {
     buffer: InputBuffer = std.mem.zeroes(InputBuffer),
-    mode: CommandMode = .None,
+    mode: CommandMode = .Menu,
     textSize: u8 = 0,
 
     pub fn reset(self: *CommandHandler) void {
         self.buffer.reset();
 
         self.textSize = switch (self.mode) {
-            .None => 0,
             .Menu => 10,
             .Open => 7,
-            .Write => 8,
             .Search => 9,
             .RelativeSearch => 18,
+            .Write => 8,
         };
     }
 };
 
 var commandHandler: CommandHandler = .{};
-
-var rom: ROM = undefined;
 
 pub fn drawTextCustom(text: [:0]const u8, x: i32, y: i32, color: rl.Color) void {
     rl.drawTextEx(font, text, rl.Vector2{
@@ -353,6 +354,44 @@ pub fn configureFontAndScreen() anyerror!void {
     rl.setWindowSize(screenWidth, screenHeight);
 }
 
+pub fn searchData(direction: SearchDirection, retry: bool) anyerror!void {
+    const searchNeedle: []const u8 = commandHandler.buffer.data[0..commandHandler.buffer.count];
+    const searchStart: u31 = if (!retry) editLine * BYTES_PER_LINE + editColumn + 1 else 0;
+    const searchEnd: u31 = if (!retry) editLine * BYTES_PER_LINE + editColumn + @as(u31, @intCast(searchNeedle.len)) - 1 else @as(u31, @intCast(rom.size));
+
+    var foundAtIndex: ?usize = null;
+
+    if (direction == .Forward) {
+        foundAtIndex = std.mem.indexOf(u8, rom.data[searchStart..], searchNeedle);
+    } else {
+        foundAtIndex = std.mem.lastIndexOf(u8, rom.data[0..searchEnd], searchNeedle);
+    }
+
+    if (foundAtIndex == null) {
+        if (!retry) {
+            try searchData(direction, true);
+        }
+
+        return;
+    }
+
+    if (direction == .Forward) {
+        foundAtIndex = foundAtIndex.? + searchStart;
+    }
+
+    const foundAtLine: u31 = @as(u31, @intCast(@divFloor(foundAtIndex.?, BYTES_PER_LINE)));
+    const foundAtColumn: u8 = @as(u8, @intCast(@mod(foundAtIndex.?, BYTES_PER_LINE)));
+
+    if (foundAtLine > editLine) {
+        try scrollEditBy(foundAtLine - editLine, .Down);
+    } else if (foundAtLine < editLine) {
+        try scrollEditBy(editLine - foundAtLine, .Up);
+    }
+
+    editColumn = foundAtColumn;
+    editNibble = 0;
+}
+
 pub fn processEditorShortcuts() anyerror!void {
     if (rl.isKeyPressed(rl.KeyboardKey.escape)) {
         if (editorMode != .Command or commandHandler.mode != .Menu) {
@@ -362,7 +401,6 @@ pub fn processEditorShortcuts() anyerror!void {
             commandHandler.reset();
         } else {
             editorMode = .Edit;
-            commandHandler.mode = .None;
         }
     }
 }
@@ -456,12 +494,23 @@ pub fn processCommandKeyboard() anyerror!void {
         return;
     } else if (rl.isKeyPressed(rl.KeyboardKey.enter)) {
         if (commandHandler.mode == .Open) {
-            rom.deinit();
+            if (rom.size > 0) {
+                rom.deinit();
+            }
 
-            rom = try ROM.init(&commandHandler.buffer.data);
+            rom = try ROM.init(commandHandler.buffer.data[0..commandHandler.buffer.count]);
+        } else if (commandHandler.mode == .Write and rom.size > 0) {
+            const romFile: std.fs.File = try std.fs.cwd().createFile(rom.filename, .{});
+            defer romFile.close();
 
-            editorMode = .Edit;
+            try romFile.writeAll(rom.data);
+        } else if (commandHandler.mode == .Search and rom.size > 0) {
+            try searchData(.Forward, false);
         }
+
+        editorMode = .Edit;
+
+        return;
     }
 
     if (commandHandler.buffer.mode == .Insert and commandHandler.buffer.count == INPUT_BUFFER_SIZE) {
@@ -574,7 +623,6 @@ pub fn drawCommandFrame() anyerror!void {
     lineBuffer.clearRetainingCapacity();
 
     try lineBuffer.appendSlice(switch (commandHandler.mode) {
-        .None => unreachable("Should not be none when rendering"),
         .Menu => " Command: ",
         .Open => " Open: ",
         .Write => " Write: ",
@@ -601,31 +649,31 @@ pub fn scrollEditBy(amount: u31, direction: ScrollDirection) anyerror!void {
         return;
     }
 
-    if (direction == .up and editLine == 0) {
+    if (direction == .Up and editLine == 0) {
         return;
     }
 
-    if (direction == .down and editLine == rom.lastLine) {
+    if (direction == .Down and editLine == rom.lastLine) {
         return;
     }
 
-    if (direction == .left and editLine == 0 and editColumn == 0) {
+    if (direction == .Left and editLine == 0 and editColumn == 0) {
         return;
     }
 
-    if (direction == .right and editLine == rom.lastLine and editColumn == BYTES_PER_LINE - 1) {
+    if (direction == .Right and editLine == rom.lastLine and editColumn == BYTES_PER_LINE - 1) {
         return;
     }
 
-    if (direction == .up or direction == .down) {
+    if (direction == .Up or direction == .Down) {
         const viewTopLine: u31 = @divFloor(rom.address, BYTES_PER_LINE);
         const viewBottomLine: u31 = viewTopLine + SCREEN_LINES - 1;
 
         var newLine: u31 = undefined;
 
-        if (direction == .down) {
+        if (direction == .Down) {
             newLine = @min(editLine + amount, rom.lastLine);
-        } else if (direction == .up) {
+        } else if (direction == .Up) {
             const iSelectedLine: i32 = editLine;
             const iNewLine: i32 = @max(0, iSelectedLine - amount);
 
@@ -646,13 +694,13 @@ pub fn scrollEditBy(amount: u31, direction: ScrollDirection) anyerror!void {
 
         editLine = newLine;
     } else {
-        if (direction == .left) {
+        if (direction == .Left) {
             if (editColumn > 0) {
                 editColumn -= 1;
             } else if (editLine > 0) {
                 editColumn = BYTES_PER_LINE - 1;
 
-                try scrollEditBy(1, .up);
+                try scrollEditBy(1, .Up);
             }
         } else {
             if (editColumn < BYTES_PER_LINE - 1) {
@@ -660,7 +708,7 @@ pub fn scrollEditBy(amount: u31, direction: ScrollDirection) anyerror!void {
             } else if (editLine < rom.lastLine) {
                 editColumn = 0;
 
-                try scrollEditBy(1, .down);
+                try scrollEditBy(1, .Down);
             }
         }
     }
@@ -676,14 +724,14 @@ pub fn scrollEditByScrollbar() anyerror!void {
     const linesDifference: u31 = @as(u31, @intCast(@abs(@as(i32, @intCast(editLine)) - @as(i32, @intCast(scrolledLine)))));
 
     if (scrolledLine < editLine) {
-        try scrollEditBy(linesDifference, .up);
+        try scrollEditBy(linesDifference, .Up);
     } else if (scrolledLine > editLine) {
-        try scrollEditBy(linesDifference, .down);
+        try scrollEditBy(linesDifference, .Down);
     }
 }
 
 pub fn advanceNibble(direction: ScrollDirection) anyerror!void {
-    if (direction == .left) {
+    if (direction == .Left) {
         if (editNibble == 1) {
             editNibble = 0;
         } else if (editLine > 0 or editColumn > 0) {
@@ -704,24 +752,24 @@ pub fn advanceNibble(direction: ScrollDirection) anyerror!void {
 
 pub fn processEditShortcuts() anyerror!void {
     if (rl.isKeyPressed(rl.KeyboardKey.down) or rl.isKeyPressedRepeat(rl.KeyboardKey.down)) {
-        try scrollEditBy(1, .down);
+        try scrollEditBy(1, .Down);
     } else if (rl.isKeyPressed(rl.KeyboardKey.up) or rl.isKeyPressedRepeat(rl.KeyboardKey.up)) {
-        try scrollEditBy(1, .up);
+        try scrollEditBy(1, .Up);
     } else if (rl.isKeyPressed(rl.KeyboardKey.page_down) or rl.isKeyPressedRepeat(rl.KeyboardKey.page_down)) {
-        try scrollEditBy(SCREEN_LINES, .down);
+        try scrollEditBy(SCREEN_LINES, .Down);
     } else if (rl.isKeyPressed(rl.KeyboardKey.page_up) or rl.isKeyPressedRepeat(rl.KeyboardKey.page_up)) {
-        try scrollEditBy(SCREEN_LINES, .up);
+        try scrollEditBy(SCREEN_LINES, .Up);
     } else if (rl.isKeyPressed(rl.KeyboardKey.left) or rl.isKeyPressedRepeat(rl.KeyboardKey.left)) {
         if (editMode == .Character) {
-            try scrollEditBy(1, .left);
+            try scrollEditBy(1, .Left);
         } else {
-            try advanceNibble(.left);
+            try advanceNibble(.Left);
         }
     } else if (rl.isKeyPressed(rl.KeyboardKey.right) or rl.isKeyPressedRepeat(rl.KeyboardKey.right)) {
         if (editMode == .Character) {
-            try scrollEditBy(1, .right);
+            try scrollEditBy(1, .Right);
         } else {
-            try advanceNibble(.right);
+            try advanceNibble(.Right);
         }
     } else if (rl.isKeyPressed(rl.KeyboardKey.tab) or rl.isKeyPressedRepeat(rl.KeyboardKey.tab)) {
         editMode = @enumFromInt(@as(u2, @intFromEnum(editMode) ^ 1));
@@ -739,12 +787,12 @@ pub fn processEditShortcuts() anyerror!void {
             editColumn = 0;
             editNibble = 0;
 
-            try scrollEditBy(editLine, .up);
+            try scrollEditBy(editLine, .Up);
         } else if (rl.isKeyDown(rl.KeyboardKey.end)) {
             editColumn = BYTES_PER_LINE - 1;
             editNibble = 0;
 
-            try scrollEditBy(rom.lines - editLine - 1, .down);
+            try scrollEditBy(rom.lines - editLine - 1, .Down);
         } else if (rl.isKeyPressed(rl.KeyboardKey.equal)) {
             fontSize = @min(fontSize + 1, FONT_SIZE_MAX);
 
@@ -753,6 +801,12 @@ pub fn processEditShortcuts() anyerror!void {
             fontSize = @max(FONT_SIZE_MIN, fontSize - 1);
 
             try configureFontAndScreen();
+        }
+    }
+
+    if ((commandHandler.mode == .Search or commandHandler.mode == .RelativeSearch) and commandHandler.buffer.count > 0) {
+        if (rl.isKeyPressed(rl.KeyboardKey.f3)) {
+            try searchData(if (rl.isKeyDown(rl.KeyboardKey.left_shift)) .Backward else .Forward, false);
         }
     }
 }
@@ -773,7 +827,7 @@ pub fn processEditKeyboard() anyerror!void {
                     rom.data[byteIndex] = (byte & 0xF0) + typedByte;
                 }
 
-                try advanceNibble(.right);
+                try advanceNibble(.Right);
             }
         } else {
             const byteIndex: u31 = editLine * BYTES_PER_LINE + editColumn;
@@ -781,7 +835,7 @@ pub fn processEditKeyboard() anyerror!void {
 
             rom.data[byteIndex] = byte;
 
-            try scrollEditBy(1, .right);
+            try scrollEditBy(1, .Right);
         }
 
         key = @as(u8, @intCast(rl.getCharPressed()));
@@ -806,9 +860,9 @@ pub fn processEditMouse() anyerror!void {
             const amount: u31 = @as(u31, @intFromFloat(@round(@abs(wheel) * 3)));
 
             if (wheel < 0) {
-                try scrollEditBy(amount, .down);
+                try scrollEditBy(amount, .Down);
             } else {
-                try scrollEditBy(amount, .up);
+                try scrollEditBy(amount, .Up);
             }
         }
     }
