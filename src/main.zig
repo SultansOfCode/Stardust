@@ -1,6 +1,5 @@
 // TODO
 // Add style's configuration
-// Fix search to use typing replacements
 // Make input have a scroll view, limiting what is being seen on the screen and drawing caret properly
 
 const std = @import("std");
@@ -363,7 +362,16 @@ pub fn searchData(direction: SearchDirection, retry: bool) anyerror!void {
         return;
     }
 
-    const searchNeedle: []const u8 = commandHandler.buffer.data[0..commandHandler.buffer.count];
+    const searchNeedle: []u8 = commandHandler.buffer.data[0..commandHandler.buffer.count];
+
+    for (0..searchNeedle.len) |i| {
+        if (!rom.typingReplacements.?.contains(searchNeedle[i])) {
+            continue;
+        }
+
+        searchNeedle[i] = rom.typingReplacements.?.get(searchNeedle[i]).?;
+    }
+
     const searchStart: u31 = if (!retry) editLine * BYTES_PER_LINE + editColumn + 1 else 0;
     const searchEnd: u31 = if (!retry) editLine * BYTES_PER_LINE + editColumn + @as(u31, @intCast(searchNeedle.len)) - 1 else @as(u31, @intCast(rom.size));
 
@@ -409,7 +417,16 @@ pub fn relativeSearchData(direction: SearchDirection, retry: bool) anyerror!void
         return;
     }
 
-    const searchNeedle: []const u8 = commandHandler.buffer.data[0..commandHandler.buffer.count];
+    const searchNeedle: []u8 = commandHandler.buffer.data[0..commandHandler.buffer.count];
+
+    for (0..searchNeedle.len) |i| {
+        if (!rom.typingReplacements.?.contains(searchNeedle[i])) {
+            continue;
+        }
+
+        searchNeedle[i] = rom.typingReplacements.?.get(searchNeedle[i]).?;
+    }
+
     const searchStart: u31 = if (!retry) editLine * BYTES_PER_LINE + editColumn + 1 else 0;
     const searchEnd: u31 = if (!retry) editLine * BYTES_PER_LINE + editColumn + @as(u31, @intCast(searchNeedle.len)) - 1 - 1 else @as(u31, @intCast(rom.size));
 
