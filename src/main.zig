@@ -683,6 +683,36 @@ pub fn processEditorShortcuts() anyerror!void {
             editorMode = .Edit;
         }
     }
+
+    if (rl.isKeyDown(rl.KeyboardKey.left_control)) {
+        if (rl.isKeyPressed(rl.KeyboardKey.equal)) {
+            fontSize = @min(fontSize + 1, FONT_SIZE_MAX);
+
+            try configureFontAndScreen();
+        } else if (rl.isKeyPressed(rl.KeyboardKey.minus)) {
+            fontSize = @max(FONT_SIZE_MIN, fontSize - 1);
+
+            try configureFontAndScreen();
+        }
+    }
+}
+
+pub fn processEditorMouse() anyerror!void {
+    const wheel: f32 = rl.getMouseWheelMove();
+
+    if (wheel != 0.0) {
+        if (rl.isKeyDown(rl.KeyboardKey.left_control)) {
+            const amount: u31 = @as(u31, @intFromFloat(@abs(wheel)));
+
+            if (wheel < 0) {
+                fontSize = @max(FONT_SIZE_MIN, fontSize - amount);
+            } else {
+                fontSize = @min(fontSize + amount, FONT_SIZE_MAX);
+            }
+
+            try configureFontAndScreen();
+        }
+    }
 }
 
 pub fn processCommandKeyboard() anyerror!void {
@@ -1151,14 +1181,6 @@ pub fn processEditShortcuts() anyerror!void {
             editNibble = 0;
 
             try scrollEditBy(rom.lines - editLine - 1, .Down);
-        } else if (rl.isKeyPressed(rl.KeyboardKey.equal)) {
-            fontSize = @min(fontSize + 1, FONT_SIZE_MAX);
-
-            try configureFontAndScreen();
-        } else if (rl.isKeyPressed(rl.KeyboardKey.minus)) {
-            fontSize = @max(FONT_SIZE_MIN, fontSize - 1);
-
-            try configureFontAndScreen();
         }
     }
 
@@ -1206,24 +1228,12 @@ pub fn processEditMouse() anyerror!void {
     const wheel: f32 = rl.getMouseWheelMove();
 
     if (wheel != 0.0) {
-        if (rl.isKeyDown(rl.KeyboardKey.left_control)) {
-            const amount: u31 = @as(u31, @intFromFloat(@abs(wheel)));
+        const amount: u31 = @as(u31, @intFromFloat(@round(@abs(wheel) * 3)));
 
-            if (wheel < 0) {
-                fontSize = @max(FONT_SIZE_MIN, fontSize - amount);
-            } else {
-                fontSize = @min(fontSize + amount, FONT_SIZE_MAX);
-            }
-
-            try configureFontAndScreen();
+        if (wheel < 0) {
+            try scrollEditBy(amount, .Down);
         } else {
-            const amount: u31 = @as(u31, @intFromFloat(@round(@abs(wheel) * 3)));
-
-            if (wheel < 0) {
-                try scrollEditBy(amount, .Down);
-            } else {
-                try scrollEditBy(amount, .Up);
-            }
+            try scrollEditBy(amount, .Up);
         }
     }
 
@@ -1426,6 +1436,7 @@ pub fn main() anyerror!u8 {
         defer rl.endDrawing();
 
         try processEditorShortcuts();
+        try processEditorMouse();
 
         if (editorMode == .Command) {
             try processCommandKeyboard();
