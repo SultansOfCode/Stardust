@@ -3,6 +3,7 @@
 // Add save of contents
 // Add search
 // Add relative search
+// Make input have a scroll view, limiting what is being seen on the screen and drawing caret properly
 
 const std = @import("std");
 const rl = @import("raylib");
@@ -49,13 +50,14 @@ const HEXADECIMAL_CHARACTERS: [22]u8 = .{
     'a', 'b', 'c', 'd', 'e', 'f',
 };
 
+const INPUT_BUFFER_SIZE: u16 = 256;
+
 const EditMode: type = enum {
     Character,
     Hexadecimal,
-    Length,
 };
 
-var editorMode: EditorMode = EditorMode.Edit;
+var editorMode: EditorMode = .Edit;
 
 var fontSize: u31 = 20;
 var font: rl.Font = undefined;
@@ -79,10 +81,12 @@ var gpa: std.heap.GeneralPurposeAllocator(.{}) = undefined;
 var editLine: u31 = 0;
 var editColumn: u8 = 0;
 var editNibble: u1 = 0;
-var editMode: EditMode = EditMode.Character;
+var editMode: EditMode = .Character;
 
 var headerBuffer: std.ArrayList(u8) = undefined;
 var lineBuffer: std.ArrayList(u8) = undefined;
+
+var shouldClose: bool = false;
 
 const ROMError: type = error{
     EmptyFile,
@@ -92,6 +96,7 @@ const ROMError: type = error{
 };
 
 const ROM: type = struct {
+    filename: []const u8,
     data: []u8,
     size: u64,
     lines: u31,
@@ -112,8 +117,6 @@ const ROM: type = struct {
         }
 
         const data: []u8 = try gpa.allocator().alloc(u8, size);
-
-        // const data: []u8 = try romFile.readToEndAlloc(gpa.allocator(), 16 * 1024 * 1024);
 
         _ = try romFile.readAll(data);
 
@@ -191,6 +194,7 @@ const ROM: type = struct {
         const lines: u31 = @as(u31, @intCast(try std.math.divCeil(usize, size, BYTES_PER_LINE)));
 
         return ROM{
+            .filename = filename,
             .data = data,
             .size = size,
             .address = 0,
@@ -232,8 +236,79 @@ const ScrollDirection: type = enum {
 const EditorMode: type = enum {
     Command,
     Edit,
-    Length,
 };
+
+const CommandMode: type = enum {
+    None,
+    Menu,
+    Open,
+    RelativeSearch,
+    Search,
+    Write,
+};
+
+const InputBufferMode: type = enum {
+    Insert,
+    Replace,
+};
+
+const InputBuffer: type = struct {
+    data: [INPUT_BUFFER_SIZE:0]u8 = .{0} ** INPUT_BUFFER_SIZE,
+    count: u8 = 0,
+    index: u8 = 0,
+    mode: InputBufferMode = .Insert,
+
+    pub fn reset(self: *InputBuffer) void {
+        @memset(&self.data, 0);
+
+        self.count = 0;
+        self.index = 0;
+        self.mode = .Insert;
+    }
+
+    pub fn setIndex(self: *InputBuffer, index: @TypeOf(INPUT_BUFFER_SIZE)) void {
+        self.index = @min(index, if (self.mode == .Insert) self.count else (if (self.count > 0) self.count - 1 else 0));
+    }
+
+    pub fn decreaseIndex(self: *InputBuffer) void {
+        self.setIndex(if (self.index > 0) self.index - 1 else 0);
+    }
+
+    pub fn increaseIndex(self: *InputBuffer) void {
+        self.setIndex(self.index + 1);
+    }
+
+    pub fn setMode(self: *InputBuffer, mode: InputBufferMode) void {
+        if (self.count == 0) {
+            self.mode = .Insert;
+
+            return;
+        }
+
+        self.mode = mode;
+    }
+};
+
+const CommandHandler: type = struct {
+    buffer: InputBuffer = std.mem.zeroes(InputBuffer),
+    mode: CommandMode = .None,
+    textSize: u8 = 0,
+
+    pub fn reset(self: *CommandHandler) void {
+        self.buffer.reset();
+
+        self.textSize = switch (self.mode) {
+            .None => 0,
+            .Menu => 10,
+            .Open => 7,
+            .Write => 8,
+            .Search => 9,
+            .RelativeSearch => 18,
+        };
+    }
+};
+
+var commandHandler: CommandHandler = .{};
 
 var rom: ROM = undefined;
 
@@ -273,6 +348,138 @@ pub fn configureFontAndScreen() anyerror!void {
     rl.setWindowSize(screenWidth, screenHeight);
 }
 
+pub fn processEditorShortcuts() anyerror!void {
+    if (rl.isKeyPressed(rl.KeyboardKey.escape)) {
+        if (editorMode != .Command or commandHandler.mode != .Menu) {
+            editorMode = .Command;
+            commandHandler.mode = .Menu;
+
+            commandHandler.reset();
+        } else {
+            editorMode = .Edit;
+            commandHandler.mode = .None;
+        }
+    }
+}
+
+pub fn processCommandKeyboard() anyerror!void {
+    if (commandHandler.mode == .Menu) {
+        if (rl.isKeyPressed(rl.KeyboardKey.q)) {
+            shouldClose = true;
+        } else if (rl.isKeyPressed(rl.KeyboardKey.o)) {
+            commandHandler.mode = .Open;
+        } else if (rl.isKeyPressed(rl.KeyboardKey.w)) {
+            commandHandler.mode = .Write;
+        } else if (rl.isKeyPressed(rl.KeyboardKey.s)) {
+            commandHandler.mode = .Search;
+        } else if (rl.isKeyPressed(rl.KeyboardKey.r)) {
+            commandHandler.mode = .RelativeSearch;
+        }
+
+        commandHandler.reset();
+
+        return;
+    }
+
+    if (rl.isKeyPressed(rl.KeyboardKey.backspace) or rl.isKeyPressedRepeat(rl.KeyboardKey.backspace)) {
+        if (commandHandler.buffer.count == 0 or commandHandler.buffer.index == 0) {
+            return;
+        }
+
+        for (commandHandler.buffer.index - 1..commandHandler.buffer.count) |i| {
+            commandHandler.buffer.data[i] = commandHandler.buffer.data[i + 1];
+        }
+
+        commandHandler.buffer.count -= 1;
+
+        commandHandler.buffer.decreaseIndex();
+
+        return;
+    } else if (rl.isKeyPressed(rl.KeyboardKey.delete) or rl.isKeyPressedRepeat(rl.KeyboardKey.delete)) {
+        if (commandHandler.buffer.count == 0 or commandHandler.buffer.index == commandHandler.buffer.count) {
+            return;
+        }
+
+        for (commandHandler.buffer.index..commandHandler.buffer.count) |i| {
+            commandHandler.buffer.data[i] = commandHandler.buffer.data[i + 1];
+        }
+
+        commandHandler.buffer.count -= 1;
+
+        if (commandHandler.buffer.mode == .Replace and commandHandler.buffer.index == commandHandler.buffer.count) {
+            commandHandler.buffer.decreaseIndex();
+
+            if (commandHandler.buffer.count == 0) {
+                commandHandler.buffer.setMode(.Insert);
+            }
+        }
+
+        return;
+    } else if (rl.isKeyPressed(rl.KeyboardKey.home) or rl.isKeyPressedRepeat(rl.KeyboardKey.home)) {
+        commandHandler.buffer.setIndex(0);
+
+        return;
+    } else if (rl.isKeyPressed(rl.KeyboardKey.end) or rl.isKeyPressedRepeat(rl.KeyboardKey.end)) {
+        commandHandler.buffer.setIndex(commandHandler.buffer.count);
+
+        return;
+    } else if (rl.isKeyPressed(rl.KeyboardKey.left) or rl.isKeyPressedRepeat(rl.KeyboardKey.left)) {
+        if (commandHandler.buffer.index > 0) {
+            commandHandler.buffer.decreaseIndex();
+        }
+
+        return;
+    } else if (rl.isKeyPressed(rl.KeyboardKey.right) or rl.isKeyPressed(rl.KeyboardKey.right)) {
+        if (commandHandler.buffer.index < commandHandler.buffer.count) {
+            commandHandler.buffer.increaseIndex();
+        }
+
+        return;
+    } else if (rl.isKeyPressed(rl.KeyboardKey.insert) or rl.isKeyPressedRepeat(rl.KeyboardKey.insert)) {
+        commandHandler.buffer.setMode(@enumFromInt(@intFromEnum(commandHandler.buffer.mode) ^ 1));
+
+        if (commandHandler.buffer.count == 0) {
+            return;
+        }
+
+        if (commandHandler.buffer.mode == .Insert and commandHandler.buffer.index == commandHandler.buffer.count - 1) {
+            commandHandler.buffer.setIndex(commandHandler.buffer.count);
+        } else if (commandHandler.buffer.mode == .Replace and commandHandler.buffer.index == commandHandler.buffer.count) {
+            commandHandler.buffer.setIndex(commandHandler.buffer.count - 1);
+        }
+
+        return;
+    }
+
+    if (commandHandler.buffer.mode == .Insert and commandHandler.buffer.count == INPUT_BUFFER_SIZE) {
+        return;
+    }
+
+    var key: u8 = @as(u8, @intCast(rl.getCharPressed()));
+
+    while (key != 0) {
+        if (commandHandler.buffer.mode == .Insert) {
+            var i: usize = commandHandler.buffer.count;
+
+            while (i >= commandHandler.buffer.index and i > 0) {
+                commandHandler.buffer.data[i] = commandHandler.buffer.data[i - 1];
+
+                i -= 1;
+            }
+
+            commandHandler.buffer.count += 1;
+        }
+
+        commandHandler.buffer.data[commandHandler.buffer.index] = key;
+
+        if (commandHandler.buffer.mode == .Insert or commandHandler.buffer.index < commandHandler.buffer.count - 1) {
+            commandHandler.buffer.increaseIndex();
+        }
+
+        key = @as(u8, @intCast(rl.getCharPressed()));
+    }
+}
+
 pub fn drawCommandFrame() anyerror!void {
     // Clear background
     rl.clearBackground(STYLE_BACKGROUND);
@@ -290,12 +497,90 @@ pub fn drawCommandFrame() anyerror!void {
     // Draw status bar
     rl.drawRectangle(0, screenHeight - lineHeight, screenWidth, lineHeight, STYLE_STATUSBAR_BACKGROUND);
 
+    if (commandHandler.mode == .Menu) {
+        lineBuffer.clearRetainingCapacity();
+
+        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "C O M M A N D S", .width = SCREEN_COLUMNS });
+        try lineBuffer.append(0);
+
+        lineBuffer.clearRetainingCapacity();
+
+        drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, 2 * lineHeight + LINE_SPACING_HALF, STYLE_TEXT);
+
+        lineBuffer.clearRetainingCapacity();
+
+        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "o   Open file            ", .width = SCREEN_COLUMNS });
+        try lineBuffer.append(0);
+
+        drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, 4 * lineHeight + LINE_SPACING_HALF, STYLE_TEXT);
+
+        lineBuffer.clearRetainingCapacity();
+
+        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "w   Write file           ", .width = SCREEN_COLUMNS });
+        try lineBuffer.append(0);
+
+        drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, 5 * lineHeight + LINE_SPACING_HALF, STYLE_TEXT);
+
+        lineBuffer.clearRetainingCapacity();
+
+        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "s   Search text          ", .width = SCREEN_COLUMNS });
+        try lineBuffer.append(0);
+
+        drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, 6 * lineHeight + LINE_SPACING_HALF, STYLE_TEXT);
+
+        lineBuffer.clearRetainingCapacity();
+
+        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "r   Search text relatively", .width = SCREEN_COLUMNS });
+        try lineBuffer.append(0);
+
+        drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, 7 * lineHeight + LINE_SPACING_HALF, STYLE_TEXT);
+
+        lineBuffer.clearRetainingCapacity();
+
+        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "q   Quit                  ", .width = SCREEN_COLUMNS });
+        try lineBuffer.append(0);
+
+        drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, 8 * lineHeight + LINE_SPACING_HALF, STYLE_TEXT);
+    }
+
     lineBuffer.clearRetainingCapacity();
 
-    try lineBuffer.appendSlice(" Command: ");
+    try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "By Wagner \"SultansOfCode\" Barongello", .width = SCREEN_COLUMNS });
     try lineBuffer.append(0);
 
-    drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, screenHeight - lineHeight + LINE_SPACING_HALF, STYLE_STATUSBAR_TEXT);
+    drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, (SCREEN_LINES - 2) * lineHeight + LINE_SPACING_HALF, STYLE_TEXT);
+
+    lineBuffer.clearRetainingCapacity();
+
+    try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "Version 0.1b", .width = SCREEN_COLUMNS });
+    try lineBuffer.append(0);
+
+    drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, (SCREEN_LINES - 1) * lineHeight + LINE_SPACING_HALF, STYLE_TEXT);
+
+    // Handle status bar
+    lineBuffer.clearRetainingCapacity();
+
+    try lineBuffer.appendSlice(switch (commandHandler.mode) {
+        .None => unreachable("Should not be none when rendering"),
+        .Menu => " Command: ",
+        .Open => " Open: ",
+        .Write => " Write: ",
+        .Search => " Search: ",
+        .RelativeSearch => " Relative search: ",
+    });
+
+    try lineBuffer.append(0);
+
+    const inputY: u31 = screenHeight - lineHeight + LINE_SPACING_HALF;
+
+    drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, inputY, STYLE_STATUSBAR_TEXT);
+
+    // Handle input
+    const inputX: u31 = (commandHandler.textSize + commandHandler.buffer.index) * characterWidth;
+
+    rl.drawRectangleLines(inputX, inputY, if (commandHandler.buffer.mode == .Insert) 1 else characterWidth, lineHeight, STYLE_STATUSBAR_TEXT);
+
+    drawTextCustom(&commandHandler.buffer.data, commandHandler.textSize * characterWidth, inputY, STYLE_STATUSBAR_TEXT);
 }
 
 pub fn scrollEditBy(amount: u31, direction: ScrollDirection) anyerror!void {
@@ -303,31 +588,31 @@ pub fn scrollEditBy(amount: u31, direction: ScrollDirection) anyerror!void {
         return;
     }
 
-    if (direction == ScrollDirection.up and editLine == 0) {
+    if (direction == .up and editLine == 0) {
         return;
     }
 
-    if (direction == ScrollDirection.down and editLine == rom.lastLine) {
+    if (direction == .down and editLine == rom.lastLine) {
         return;
     }
 
-    if (direction == ScrollDirection.left and editLine == 0 and editColumn == 0) {
+    if (direction == .left and editLine == 0 and editColumn == 0) {
         return;
     }
 
-    if (direction == ScrollDirection.right and editLine == rom.lastLine and editColumn == BYTES_PER_LINE - 1) {
+    if (direction == .right and editLine == rom.lastLine and editColumn == BYTES_PER_LINE - 1) {
         return;
     }
 
-    if (direction == ScrollDirection.up or direction == ScrollDirection.down) {
+    if (direction == .up or direction == .down) {
         const viewTopLine: u31 = @divFloor(rom.address, BYTES_PER_LINE);
         const viewBottomLine: u31 = viewTopLine + SCREEN_LINES - 1;
 
         var newLine: u31 = undefined;
 
-        if (direction == ScrollDirection.down) {
+        if (direction == .down) {
             newLine = @min(editLine + amount, rom.lastLine);
-        } else if (direction == ScrollDirection.up) {
+        } else if (direction == .up) {
             const iSelectedLine: i32 = editLine;
             const iNewLine: i32 = @max(0, iSelectedLine - amount);
 
@@ -348,13 +633,13 @@ pub fn scrollEditBy(amount: u31, direction: ScrollDirection) anyerror!void {
 
         editLine = newLine;
     } else {
-        if (direction == ScrollDirection.left) {
+        if (direction == .left) {
             if (editColumn > 0) {
                 editColumn -= 1;
             } else if (editLine > 0) {
                 editColumn = BYTES_PER_LINE - 1;
 
-                try scrollEditBy(1, ScrollDirection.up);
+                try scrollEditBy(1, .up);
             }
         } else {
             if (editColumn < BYTES_PER_LINE - 1) {
@@ -362,7 +647,7 @@ pub fn scrollEditBy(amount: u31, direction: ScrollDirection) anyerror!void {
             } else if (editLine < rom.lastLine) {
                 editColumn = 0;
 
-                try scrollEditBy(1, ScrollDirection.down);
+                try scrollEditBy(1, .down);
             }
         }
     }
@@ -378,14 +663,14 @@ pub fn scrollEditByScrollbar() anyerror!void {
     const linesDifference: u31 = @as(u31, @intCast(@abs(@as(i32, @intCast(editLine)) - @as(i32, @intCast(scrolledLine)))));
 
     if (scrolledLine < editLine) {
-        try scrollEditBy(linesDifference, ScrollDirection.up);
+        try scrollEditBy(linesDifference, .up);
     } else if (scrolledLine > editLine) {
-        try scrollEditBy(linesDifference, ScrollDirection.down);
+        try scrollEditBy(linesDifference, .down);
     }
 }
 
 pub fn advanceNibble(direction: ScrollDirection) anyerror!void {
-    if (direction == ScrollDirection.left) {
+    if (direction == .left) {
         if (editNibble == 1) {
             editNibble = 0;
         } else if (editLine > 0 or editColumn > 0) {
@@ -406,27 +691,27 @@ pub fn advanceNibble(direction: ScrollDirection) anyerror!void {
 
 pub fn processEditShortcuts() anyerror!void {
     if (rl.isKeyPressed(rl.KeyboardKey.down) or rl.isKeyPressedRepeat(rl.KeyboardKey.down)) {
-        try scrollEditBy(1, ScrollDirection.down);
+        try scrollEditBy(1, .down);
     } else if (rl.isKeyPressed(rl.KeyboardKey.up) or rl.isKeyPressedRepeat(rl.KeyboardKey.up)) {
-        try scrollEditBy(1, ScrollDirection.up);
+        try scrollEditBy(1, .up);
     } else if (rl.isKeyPressed(rl.KeyboardKey.page_down) or rl.isKeyPressedRepeat(rl.KeyboardKey.page_down)) {
-        try scrollEditBy(SCREEN_LINES, ScrollDirection.down);
+        try scrollEditBy(SCREEN_LINES, .down);
     } else if (rl.isKeyPressed(rl.KeyboardKey.page_up) or rl.isKeyPressedRepeat(rl.KeyboardKey.page_up)) {
-        try scrollEditBy(SCREEN_LINES, ScrollDirection.up);
+        try scrollEditBy(SCREEN_LINES, .up);
     } else if (rl.isKeyPressed(rl.KeyboardKey.left) or rl.isKeyPressedRepeat(rl.KeyboardKey.left)) {
-        if (editMode == EditMode.Character) {
-            try scrollEditBy(1, ScrollDirection.left);
+        if (editMode == .Character) {
+            try scrollEditBy(1, .left);
         } else {
-            try advanceNibble(ScrollDirection.left);
+            try advanceNibble(.left);
         }
     } else if (rl.isKeyPressed(rl.KeyboardKey.right) or rl.isKeyPressedRepeat(rl.KeyboardKey.right)) {
-        if (editMode == EditMode.Character) {
-            try scrollEditBy(1, ScrollDirection.right);
+        if (editMode == .Character) {
+            try scrollEditBy(1, .right);
         } else {
-            try advanceNibble(ScrollDirection.right);
+            try advanceNibble(.right);
         }
     } else if (rl.isKeyPressed(rl.KeyboardKey.tab) or rl.isKeyPressedRepeat(rl.KeyboardKey.tab)) {
-        editMode = @enumFromInt(@mod(@as(u2, @intFromEnum(editMode)) + 1, @intFromEnum(EditMode.Length)));
+        editMode = @enumFromInt(@as(u2, @intFromEnum(editMode) ^ 1));
         editNibble = 0;
     } else if (rl.isKeyDown(rl.KeyboardKey.home)) {
         editColumn = 0;
@@ -441,12 +726,12 @@ pub fn processEditShortcuts() anyerror!void {
             editColumn = 0;
             editNibble = 0;
 
-            try scrollEditBy(editLine, ScrollDirection.up);
+            try scrollEditBy(editLine, .up);
         } else if (rl.isKeyDown(rl.KeyboardKey.end)) {
             editColumn = BYTES_PER_LINE - 1;
             editNibble = 0;
 
-            try scrollEditBy(rom.lines - editLine - 1, ScrollDirection.down);
+            try scrollEditBy(rom.lines - editLine - 1, .down);
         } else if (rl.isKeyPressed(rl.KeyboardKey.equal)) {
             fontSize = @min(fontSize + 1, FONT_SIZE_MAX);
 
@@ -463,7 +748,7 @@ pub fn processEditKeyboard() anyerror!void {
     var key: u8 = @as(u8, @intCast(rl.getCharPressed()));
 
     while (key != 0) {
-        if (editMode == EditMode.Hexadecimal) {
+        if (editMode == .Hexadecimal) {
             if (std.mem.containsAtLeast(u8, &HEXADECIMAL_CHARACTERS, 1, &.{key})) {
                 const byteIndex: u31 = editLine * BYTES_PER_LINE + editColumn;
                 const byte: u8 = rom.data[byteIndex];
@@ -475,7 +760,7 @@ pub fn processEditKeyboard() anyerror!void {
                     rom.data[byteIndex] = (byte & 0xF0) + typedByte;
                 }
 
-                try advanceNibble(ScrollDirection.right);
+                try advanceNibble(.right);
             }
         } else {
             const byteIndex: u31 = editLine * BYTES_PER_LINE + editColumn;
@@ -483,7 +768,7 @@ pub fn processEditKeyboard() anyerror!void {
 
             rom.data[byteIndex] = byte;
 
-            try scrollEditBy(1, ScrollDirection.right);
+            try scrollEditBy(1, .right);
         }
 
         key = @as(u8, @intCast(rl.getCharPressed()));
@@ -508,9 +793,9 @@ pub fn processEditMouse() anyerror!void {
             const amount: u31 = @as(u31, @intFromFloat(@round(@abs(wheel) * 3)));
 
             if (wheel < 0) {
-                try scrollEditBy(amount, ScrollDirection.down);
+                try scrollEditBy(amount, .down);
             } else {
-                try scrollEditBy(amount, ScrollDirection.up);
+                try scrollEditBy(amount, .up);
             }
         }
     }
@@ -553,14 +838,14 @@ pub fn processEditMouse() anyerror!void {
                     const nibbleIndex: u31 = @mod(column, 3);
 
                     if (nibbleIndex < 2) {
-                        editMode = EditMode.Hexadecimal;
+                        editMode = .Hexadecimal;
                         editNibble = @as(u1, @intCast(nibbleIndex));
                         editColumn = @as(u8, @intCast(byteIndex));
                     }
                 } else if (column >= charactersStartColumn and column <= charactersEndColumn) {
                     const byteIndex: u31 = column - charactersStartColumn;
 
-                    editMode = EditMode.Character;
+                    editMode = .Character;
                     editNibble = 0;
                     editColumn = @as(u8, @intCast(byteIndex));
                 }
@@ -603,7 +888,7 @@ pub fn drawEditFrame() anyerror!void {
     try lineBuffer.appendSlice(" Addr: ");
     try lineBuffer.writer().print("{X:0>8}", .{editLine * BYTES_PER_LINE + editColumn});
     try lineBuffer.appendSlice(" Mode: ");
-    try lineBuffer.writer().print("{s}", .{if (editMode == EditMode.Character) "Character" else "Hexadecimal"});
+    try lineBuffer.writer().print("{s}", .{if (editMode == .Character) "Character" else "Hexadecimal"});
     try lineBuffer.append(0);
 
     drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, screenHeight - lineHeight + LINE_SPACING_HALF, STYLE_STATUSBAR_TEXT);
@@ -615,7 +900,7 @@ pub fn drawEditFrame() anyerror!void {
     const editHexadecimalHighlightX: i32 = (8 + 1 + (editColumn * 3) + editNibble) * characterWidth;
     const editCharacterHighlightX: i32 = (8 + 1 + (2 * BYTES_PER_LINE) + (BYTES_PER_LINE - 1) + 1 + editColumn) * characterWidth;
 
-    if (editMode == EditMode.Character) {
+    if (editMode == .Character) {
         rl.drawRectangleLines(editHexadecimalHighlightX, editHighlightY, characterWidth * 2, lineHeight, rl.Color.black);
         rl.drawRectangle(editCharacterHighlightX, editHighlightY, characterWidth, lineHeight, STYLE_CHARACTER_HIGHLIGHT);
     } else {
@@ -705,17 +990,16 @@ pub fn main() anyerror!u8 {
 
     rl.setTargetFPS(60);
 
-    while (!rl.windowShouldClose()) {
+    while (!rl.windowShouldClose() and !shouldClose) {
         rl.beginDrawing();
         defer rl.endDrawing();
 
-        if (rl.isKeyPressed(rl.KeyboardKey.escape)) {
-            editorMode = @enumFromInt(@mod(@as(u2, @intFromEnum(editorMode)) + 1, @intFromEnum(EditorMode.Length)));
-        }
+        try processEditorShortcuts();
 
-        if (editorMode == EditorMode.Command) {
+        if (editorMode == .Command) {
+            try processCommandKeyboard();
             try drawCommandFrame();
-        } else if (editorMode == EditorMode.Edit) {
+        } else if (editorMode == .Edit) {
             try processEditShortcuts();
             try processEditKeyboard();
             try processEditMouse();
