@@ -433,9 +433,10 @@ pub fn relativeSearchData(direction: SearchDirection, retry: bool) anyerror!void
     var relativeDifferences: [INPUT_BUFFER_SIZE - 2]i9 = .{0} ** (INPUT_BUFFER_SIZE - 2);
 
     for (1..commandHandler.buffer.count) |i| {
-        // relativeDifferences[i - 1] = @as(i8, @intCast(commandHandler.buffer.data[i])) - @as(i8, @intCast(commandHandler.buffer.data[i - 1]));
         relativeDifferences[i - 1] = @as(i9, @intCast(commandHandler.buffer.data[i])) - @as(i9, @intCast(commandHandler.buffer.data[i - 1]));
     }
+
+    std.log.info("RSD: N: {any} SS: {d} SE: {d} RD: {any}", .{ searchNeedle, searchStart, searchEnd, relativeDifferences });
 
     var foundAtIndex: ?usize = null;
 
@@ -476,7 +477,7 @@ pub fn relativeSearchData(direction: SearchDirection, retry: bool) anyerror!void
             }
 
             if (found) {
-                foundAtIndex = i - (commandHandler.buffer.count - 1) + 1 + 1;
+                foundAtIndex = i - (commandHandler.buffer.count - 1);
 
                 break;
             }
