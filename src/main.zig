@@ -931,59 +931,66 @@ pub fn drawCommandFrame() anyerror!void {
 
         lineBuffer.clearRetainingCapacity();
 
-        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "o   Open file            ", .width = SCREEN_COLUMNS });
+        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "o     Open file            ", .width = SCREEN_COLUMNS });
         try lineBuffer.append(0);
 
         drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, 4 * lineHeight + LINE_SPACING_HALF, style.text);
 
         lineBuffer.clearRetainingCapacity();
 
-        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "w   Write file           ", .width = SCREEN_COLUMNS });
+        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "w     Write file           ", .width = SCREEN_COLUMNS });
         try lineBuffer.append(0);
 
         drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, 5 * lineHeight + LINE_SPACING_HALF, style.text);
 
         lineBuffer.clearRetainingCapacity();
 
-        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "p   Reload file          ", .width = SCREEN_COLUMNS });
+        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "p     Reload file          ", .width = SCREEN_COLUMNS });
         try lineBuffer.append(0);
 
         drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, 6 * lineHeight + LINE_SPACING_HALF, style.text);
 
         lineBuffer.clearRetainingCapacity();
 
-        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "s   Search text          ", .width = SCREEN_COLUMNS });
+        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "s     Search text          ", .width = SCREEN_COLUMNS });
         try lineBuffer.append(0);
 
         drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, 7 * lineHeight + LINE_SPACING_HALF, style.text);
 
         lineBuffer.clearRetainingCapacity();
 
-        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "r   Search text relatively", .width = SCREEN_COLUMNS });
+        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "r     Search text relatively", .width = SCREEN_COLUMNS });
         try lineBuffer.append(0);
 
         drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, 8 * lineHeight + LINE_SPACING_HALF, style.text);
 
         lineBuffer.clearRetainingCapacity();
 
-        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "g   Go to address         ", .width = SCREEN_COLUMNS });
+        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "g     Go to address         ", .width = SCREEN_COLUMNS });
         try lineBuffer.append(0);
 
         drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, 9 * lineHeight + LINE_SPACING_HALF, style.text);
 
         lineBuffer.clearRetainingCapacity();
 
-        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "t   Reload theme          ", .width = SCREEN_COLUMNS });
+        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "t     Reload theme          ", .width = SCREEN_COLUMNS });
         try lineBuffer.append(0);
 
         drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, 10 * lineHeight + LINE_SPACING_HALF, style.text);
 
         lineBuffer.clearRetainingCapacity();
 
-        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "q   Quit                  ", .width = SCREEN_COLUMNS });
+        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "Esc   Back to editor        ", .width = SCREEN_COLUMNS });
         try lineBuffer.append(0);
 
         drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, 11 * lineHeight + LINE_SPACING_HALF, style.text);
+
+        lineBuffer.clearRetainingCapacity();
+
+        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "q     Quit                  ", .width = SCREEN_COLUMNS });
+        try lineBuffer.append(0);
+
+        drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, 12 * lineHeight + LINE_SPACING_HALF, style.text);
     }
 
     lineBuffer.clearRetainingCapacity();
