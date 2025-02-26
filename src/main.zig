@@ -1,6 +1,6 @@
 // TODO
 // Add style's configuration
-// Fix u8 -> i8 in relative search
+// Fix search to use typing replacements
 // Make input have a scroll view, limiting what is being seen on the screen and drawing caret properly
 
 const std = @import("std");
@@ -413,10 +413,11 @@ pub fn relativeSearchData(direction: SearchDirection, retry: bool) anyerror!void
     const searchStart: u31 = if (!retry) editLine * BYTES_PER_LINE + editColumn + 1 else 0;
     const searchEnd: u31 = if (!retry) editLine * BYTES_PER_LINE + editColumn + @as(u31, @intCast(searchNeedle.len)) - 1 - 1 else @as(u31, @intCast(rom.size));
 
-    var relativeDifferences: [INPUT_BUFFER_SIZE - 2]i8 = .{0} ** (INPUT_BUFFER_SIZE - 2);
+    var relativeDifferences: [INPUT_BUFFER_SIZE - 2]i9 = .{0} ** (INPUT_BUFFER_SIZE - 2);
 
     for (1..commandHandler.buffer.count) |i| {
-        relativeDifferences[i - 1] = @as(i8, @intCast(commandHandler.buffer.data[i])) - @as(i8, @intCast(commandHandler.buffer.data[i - 1]));
+        // relativeDifferences[i - 1] = @as(i8, @intCast(commandHandler.buffer.data[i])) - @as(i8, @intCast(commandHandler.buffer.data[i - 1]));
+        relativeDifferences[i - 1] = @as(i9, @intCast(commandHandler.buffer.data[i])) - @as(i9, @intCast(commandHandler.buffer.data[i - 1]));
     }
 
     var foundAtIndex: ?usize = null;
@@ -426,7 +427,7 @@ pub fn relativeSearchData(direction: SearchDirection, retry: bool) anyerror!void
             var found: bool = true;
 
             for (0..commandHandler.buffer.count - 1) |j| {
-                const difference: i8 = @as(i8, @intCast(rom.data[i + j + 1])) - @as(i8, @intCast(rom.data[i + j]));
+                const difference: i9 = @as(i9, @intCast(rom.data[i + j + 1])) - @as(i9, @intCast(rom.data[i + j]));
 
                 if (difference != relativeDifferences[j]) {
                     found = false;
@@ -448,7 +449,7 @@ pub fn relativeSearchData(direction: SearchDirection, retry: bool) anyerror!void
             var found: bool = true;
 
             for (0..commandHandler.buffer.count - 1) |j| {
-                const difference: i8 = @as(i8, @intCast(rom.data[i - (commandHandler.buffer.count - 1) + j + 1])) - @as(i8, @intCast(rom.data[i - (commandHandler.buffer.count - 1) + j]));
+                const difference: i9 = @as(i9, @intCast(rom.data[i - (commandHandler.buffer.count - 1) + j + 1])) - @as(i9, @intCast(rom.data[i - (commandHandler.buffer.count - 1) + j]));
 
                 if (difference != relativeDifferences[j]) {
                     found = false;
@@ -595,6 +596,10 @@ pub fn processCommandKeyboard() anyerror!void {
             }
 
             rom = try ROM.init(commandHandler.buffer.data[0..commandHandler.buffer.count]);
+
+            editLine = 0;
+            editColumn = 0;
+            editNibble = 0;
         } else if (commandHandler.mode == .Write and rom.size > 0) {
             const romFile: std.fs.File = try std.fs.cwd().createFile(rom.filename, .{});
             defer romFile.close();
