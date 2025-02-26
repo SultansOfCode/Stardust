@@ -1,1 +1,1 @@
-cls && zig build && .\zig-out\bin\RayxEdigor.exe
+cls && zig build && .\zig-out\bin\Stardust.exe

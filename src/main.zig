@@ -654,7 +654,7 @@ pub fn drawCommandFrame() anyerror!void {
 
     lineBuffer.clearRetainingCapacity();
 
-    try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "RayxEdigor", .width = SCREEN_COLUMNS });
+    try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "Stardust", .width = SCREEN_COLUMNS });
     try lineBuffer.append(0);
 
     drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, LINE_SPACING_HALF, STYLE_HEADER_TEXT);
@@ -1149,8 +1149,10 @@ pub fn main() anyerror!u8 {
     lineBuffer = std.ArrayList(u8).init(fba.allocator());
     defer lineBuffer.deinit();
 
-    rl.initWindow(814, 640, "RayxEdigor");
+    rl.initWindow(814, 640, "Stardust");
     defer rl.closeWindow();
+
+    rl.setWindowIcon(try rl.loadImage("resources/icon.png"));
 
     rl.setExitKey(rl.KeyboardKey.null);
 
