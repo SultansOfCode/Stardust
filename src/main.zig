@@ -1,6 +1,5 @@
 // TODO
 // Add style's configuration
-// Make input have a scroll view, limiting what is being seen on the screen and drawing caret properly
 
 const std = @import("std");
 const rl = @import("raylib");
@@ -1269,6 +1268,8 @@ pub fn main() anyerror!u8 {
 
             try drawEditFrame();
         }
+
+        rl.drawFPS(50, 50);
     }
 
     return 0;
