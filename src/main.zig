@@ -1268,8 +1268,6 @@ pub fn main() anyerror!u8 {
 
             try drawEditFrame();
         }
-
-        rl.drawFPS(50, 50);
     }
 
     return 0;
