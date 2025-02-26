@@ -168,13 +168,13 @@ const ROM: type = struct {
                     continue;
                 }
 
-                const byte = try std.fmt.parseInt(u8, trimmedLine[0..2], 16);
+                const byte: u8 = try std.fmt.parseInt(u8, trimmedLine[0..2], 16);
 
                 if (symbolReplacements.?.contains(byte)) {
                     return ROMError.SymbolAlreadyReplaced;
                 }
 
-                const char = trimmedLine[3];
+                const char: u8 = trimmedLine[3];
 
                 if (typingReplacements.?.contains(char)) {
                     return ROMError.TypingAlreadyReplaced;
@@ -248,6 +248,7 @@ const EditorMode: type = enum {
 };
 
 const CommandMode: type = enum {
+    GotoAddress,
     Menu,
     Open,
     RelativeSearch,
@@ -265,6 +266,7 @@ const InputBuffer: type = struct {
     count: u8 = 0,
     index: u8 = 0,
     mode: InputBufferMode = .Insert,
+    maxLength: u16 = INPUT_BUFFER_SIZE - 1,
 
     pub fn reset(self: *InputBuffer) void {
         @memset(&self.data, 0);
@@ -272,6 +274,7 @@ const InputBuffer: type = struct {
         self.count = 0;
         self.index = 0;
         self.mode = .Insert;
+        self.maxLength = INPUT_BUFFER_SIZE - 1;
     }
 
     pub fn setIndex(self: *InputBuffer, index: @TypeOf(INPUT_BUFFER_SIZE)) void {
@@ -306,12 +309,15 @@ const CommandHandler: type = struct {
         self.buffer.reset();
 
         self.textSize = switch (self.mode) {
+            .GotoAddress => 16,
             .Menu => 10,
             .Open => 7,
             .Search => 9,
             .RelativeSearch => 18,
             .Write => 8,
         };
+
+        self.buffer.maxLength = @as(u16, @intCast(SCREEN_COLUMNS)) - self.textSize - 1;
     }
 };
 
@@ -364,12 +370,14 @@ pub fn searchData(direction: SearchDirection, retry: bool) anyerror!void {
 
     const searchNeedle: []u8 = commandHandler.buffer.data[0..commandHandler.buffer.count];
 
-    for (0..searchNeedle.len) |i| {
-        if (!rom.typingReplacements.?.contains(searchNeedle[i])) {
-            continue;
-        }
+    if (rom.typingReplacements != null) {
+        for (0..searchNeedle.len) |i| {
+            if (!rom.typingReplacements.?.contains(searchNeedle[i])) {
+                continue;
+            }
 
-        searchNeedle[i] = rom.typingReplacements.?.get(searchNeedle[i]).?;
+            searchNeedle[i] = rom.typingReplacements.?.get(searchNeedle[i]).?;
+        }
     }
 
     const searchStart: u31 = if (!retry) editLine * BYTES_PER_LINE + editColumn + 1 else 0;
@@ -419,12 +427,14 @@ pub fn relativeSearchData(direction: SearchDirection, retry: bool) anyerror!void
 
     const searchNeedle: []u8 = commandHandler.buffer.data[0..commandHandler.buffer.count];
 
-    for (0..searchNeedle.len) |i| {
-        if (!rom.typingReplacements.?.contains(searchNeedle[i])) {
-            continue;
-        }
+    if (rom.typingReplacements != null) {
+        for (0..searchNeedle.len) |i| {
+            if (!rom.typingReplacements.?.contains(searchNeedle[i])) {
+                continue;
+            }
 
-        searchNeedle[i] = rom.typingReplacements.?.get(searchNeedle[i]).?;
+            searchNeedle[i] = rom.typingReplacements.?.get(searchNeedle[i]).?;
+        }
     }
 
     const searchStart: u31 = if (!retry) editLine * BYTES_PER_LINE + editColumn + 1 else 0;
@@ -435,8 +445,6 @@ pub fn relativeSearchData(direction: SearchDirection, retry: bool) anyerror!void
     for (1..commandHandler.buffer.count) |i| {
         relativeDifferences[i - 1] = @as(i9, @intCast(commandHandler.buffer.data[i])) - @as(i9, @intCast(commandHandler.buffer.data[i - 1]));
     }
-
-    std.log.info("RSD: N: {any} SS: {d} SE: {d} RD: {any}", .{ searchNeedle, searchStart, searchEnd, relativeDifferences });
 
     var foundAtIndex: ?usize = null;
 
@@ -528,13 +536,31 @@ pub fn processCommandKeyboard() anyerror!void {
             commandHandler.mode = .Open;
         } else if (rl.isKeyPressed(rl.KeyboardKey.w)) {
             commandHandler.mode = .Write;
+        } else if (rl.isKeyPressed(rl.KeyboardKey.p)) {
+            if (rom.size == 0) {
+                return;
+            }
+
+            const filename: []const u8 = rom.filename;
+
+            rom.deinit();
+
+            rom = try ROM.init(filename);
+
+            editorMode = .Edit;
         } else if (rl.isKeyPressed(rl.KeyboardKey.s)) {
             commandHandler.mode = .Search;
         } else if (rl.isKeyPressed(rl.KeyboardKey.r)) {
             commandHandler.mode = .RelativeSearch;
+        } else if (rl.isKeyPressed(rl.KeyboardKey.g)) {
+            commandHandler.mode = .GotoAddress;
         }
 
         commandHandler.reset();
+
+        if (commandHandler.mode == .GotoAddress) {
+            commandHandler.buffer.maxLength = 8;
+        }
 
         return;
     }
@@ -608,6 +634,10 @@ pub fn processCommandKeyboard() anyerror!void {
 
         return;
     } else if (rl.isKeyPressed(rl.KeyboardKey.enter)) {
+        if (commandHandler.buffer.count == 0) {
+            return;
+        }
+
         if (commandHandler.mode == .Open) {
             if (rom.size > 0) {
                 rom.deinit();
@@ -627,6 +657,18 @@ pub fn processCommandKeyboard() anyerror!void {
             try searchData(.Forward, false);
         } else if (commandHandler.mode == .RelativeSearch and rom.size > 0) {
             try relativeSearchData(.Forward, false);
+        } else if (commandHandler.mode == .GotoAddress and rom.size > 0) {
+            const newAddress: u32 = try std.fmt.parseInt(u32, commandHandler.buffer.data[0..commandHandler.buffer.count], 16);
+            const newLine: u31 = @as(u31, @intCast(@divFloor(newAddress, BYTES_PER_LINE)));
+            const newColumn: u8 = @as(u8, @intCast(@mod(newAddress, BYTES_PER_LINE)));
+
+            if (newLine > editLine) {
+                try scrollEditBy(newLine - editLine, .Down);
+            } else if (newLine < editLine) {
+                try scrollEditBy(editLine - newLine, .Up);
+            }
+
+            editColumn = newColumn;
         }
 
         editorMode = .Edit;
@@ -638,28 +680,36 @@ pub fn processCommandKeyboard() anyerror!void {
         return;
     }
 
-    var key: u8 = @as(u8, @intCast(rl.getCharPressed()));
+    if (commandHandler.buffer.mode == .Replace or commandHandler.buffer.count < commandHandler.buffer.maxLength) {
+        var key: u8 = @as(u8, @intCast(rl.getCharPressed()));
 
-    while (key != 0) {
-        if (commandHandler.buffer.mode == .Insert) {
-            var i: usize = commandHandler.buffer.count;
+        while (key != 0) {
+            if (commandHandler.mode == .GotoAddress and !std.mem.containsAtLeast(u8, &HEXADECIMAL_CHARACTERS, 1, &.{key})) {
+                key = @as(u8, @intCast(rl.getCharPressed()));
 
-            while (i >= commandHandler.buffer.index and i > 0) {
-                commandHandler.buffer.data[i] = commandHandler.buffer.data[i - 1];
-
-                i -= 1;
+                continue;
             }
 
-            commandHandler.buffer.count += 1;
+            if (commandHandler.buffer.mode == .Insert) {
+                var i: usize = commandHandler.buffer.count;
+
+                while (i >= commandHandler.buffer.index and i > 0) {
+                    commandHandler.buffer.data[i] = commandHandler.buffer.data[i - 1];
+
+                    i -= 1;
+                }
+
+                commandHandler.buffer.count += 1;
+            }
+
+            commandHandler.buffer.data[commandHandler.buffer.index] = key;
+
+            if (commandHandler.buffer.mode == .Insert or commandHandler.buffer.index < commandHandler.buffer.count - 1) {
+                commandHandler.buffer.increaseIndex();
+            }
+
+            key = @as(u8, @intCast(rl.getCharPressed()));
         }
-
-        commandHandler.buffer.data[commandHandler.buffer.index] = key;
-
-        if (commandHandler.buffer.mode == .Insert or commandHandler.buffer.index < commandHandler.buffer.count - 1) {
-            commandHandler.buffer.increaseIndex();
-        }
-
-        key = @as(u8, @intCast(rl.getCharPressed()));
     }
 }
 
@@ -706,24 +756,38 @@ pub fn drawCommandFrame() anyerror!void {
 
         lineBuffer.clearRetainingCapacity();
 
-        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "s   Search text          ", .width = SCREEN_COLUMNS });
+        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "p   Reload file          ", .width = SCREEN_COLUMNS });
         try lineBuffer.append(0);
 
         drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, 6 * lineHeight + LINE_SPACING_HALF, STYLE_TEXT);
 
         lineBuffer.clearRetainingCapacity();
 
-        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "r   Search text relatively", .width = SCREEN_COLUMNS });
+        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "s   Search text          ", .width = SCREEN_COLUMNS });
         try lineBuffer.append(0);
 
         drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, 7 * lineHeight + LINE_SPACING_HALF, STYLE_TEXT);
 
         lineBuffer.clearRetainingCapacity();
 
-        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "q   Quit                  ", .width = SCREEN_COLUMNS });
+        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "r   Search text relatively", .width = SCREEN_COLUMNS });
         try lineBuffer.append(0);
 
         drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, 8 * lineHeight + LINE_SPACING_HALF, STYLE_TEXT);
+
+        lineBuffer.clearRetainingCapacity();
+
+        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "g   Go to address         ", .width = SCREEN_COLUMNS });
+        try lineBuffer.append(0);
+
+        drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, 9 * lineHeight + LINE_SPACING_HALF, STYLE_TEXT);
+
+        lineBuffer.clearRetainingCapacity();
+
+        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "q   Quit                  ", .width = SCREEN_COLUMNS });
+        try lineBuffer.append(0);
+
+        drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, 10 * lineHeight + LINE_SPACING_HALF, STYLE_TEXT);
     }
 
     lineBuffer.clearRetainingCapacity();
@@ -744,6 +808,7 @@ pub fn drawCommandFrame() anyerror!void {
     lineBuffer.clearRetainingCapacity();
 
     try lineBuffer.appendSlice(switch (commandHandler.mode) {
+        .GotoAddress => " Go to address: ",
         .Menu => " Command: ",
         .Open => " Open: ",
         .Write => " Write: ",
@@ -771,10 +836,16 @@ pub fn scrollEditBy(amount: u31, direction: ScrollDirection) anyerror!void {
     }
 
     if (direction == .Up and editLine == 0) {
+        editColumn = 0;
+        editNibble = 0;
+
         return;
     }
 
     if (direction == .Down and editLine == rom.lastLine) {
+        editColumn = BYTES_PER_LINE - 1;
+        editNibble = 0;
+
         return;
     }
 
