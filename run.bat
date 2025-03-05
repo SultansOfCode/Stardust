@@ -1,1 +1,1 @@
-cls && zig build && .\zig-out\bin\Stardust.exe
+cls && zig build run

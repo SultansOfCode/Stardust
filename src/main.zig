@@ -37,7 +37,7 @@ var style: Style = Style{};
 const FONT_FILE: [:0]const u8 = "resources/firacode.ttf";
 const FONT_SIZE_MIN: u31 = 16;
 const FONT_SIZE_MAX: u31 = 32;
-const FONT_SPACING: u31 = 1;
+const FONT_SPACING: u31 = 0;
 const FONT_SPACING_HALF: u31 = @divFloor(FONT_SPACING, 2);
 
 const LINE_SPACING: u31 = 0;
@@ -491,7 +491,8 @@ pub fn configureFontAndScreen() anyerror!void {
     if (font.glyphCount > 0) {
         rl.unloadFont(font);
     }
-
+    // const x = @embedFile(FONT_FILE);
+    // font = rl.loadFontFromMemory(".ttf", x, fontSize, null);
     font = try rl.loadFontEx(FONT_FILE, fontSize, null);
 
     if (font.glyphCount == 0) {
@@ -673,7 +674,7 @@ pub fn relativeSearchData(direction: SearchDirection, retry: bool) anyerror!void
 }
 
 pub fn processEditorShortcuts() anyerror!void {
-    if (rl.isKeyPressed(rl.KeyboardKey.escape)) {
+    if (rl.isKeyPressed(.escape)) {
         if (editorMode != .Command or commandHandler.mode != .Menu) {
             editorMode = .Command;
             commandHandler.mode = .Menu;
@@ -684,12 +685,12 @@ pub fn processEditorShortcuts() anyerror!void {
         }
     }
 
-    if (rl.isKeyDown(rl.KeyboardKey.left_control)) {
-        if (rl.isKeyPressed(rl.KeyboardKey.equal)) {
+    if (rl.isKeyDown(.left_control)) {
+        if (rl.isKeyPressed(.equal)) {
             fontSize = @min(fontSize + 1, FONT_SIZE_MAX);
 
             try configureFontAndScreen();
-        } else if (rl.isKeyPressed(rl.KeyboardKey.minus)) {
+        } else if (rl.isKeyPressed(.minus)) {
             fontSize = @max(FONT_SIZE_MIN, fontSize - 1);
 
             try configureFontAndScreen();
@@ -701,7 +702,7 @@ pub fn processEditorMouse() anyerror!void {
     const wheel: f32 = rl.getMouseWheelMove();
 
     if (wheel != 0.0) {
-        if (rl.isKeyDown(rl.KeyboardKey.left_control)) {
+        if (rl.isKeyDown(.left_control)) {
             const amount: u31 = @as(u31, @intFromFloat(@abs(wheel)));
 
             if (wheel < 0) {
@@ -717,31 +718,31 @@ pub fn processEditorMouse() anyerror!void {
 
 pub fn processCommandKeyboard() anyerror!void {
     if (commandHandler.mode == .Menu) {
-        if (rl.isKeyPressed(rl.KeyboardKey.q)) {
+        if (rl.isKeyPressed(.q)) {
             shouldClose = true;
-        } else if (rl.isKeyPressed(rl.KeyboardKey.o)) {
+        } else if (rl.isKeyPressed(.o)) {
             commandHandler.mode = .Open;
-        } else if (rl.isKeyPressed(rl.KeyboardKey.w)) {
+        } else if (rl.isKeyPressed(.w)) {
             commandHandler.mode = .Write;
-        } else if (rl.isKeyPressed(rl.KeyboardKey.p)) {
+        } else if (rl.isKeyPressed(.p)) {
             if (rom.size == 0) {
                 return;
             }
 
-            const filename: []const u8 = rom.filename;
-
+            const filename = rom.filename[0..rom.filename.len];
+            std.log.info("BEFORE: {any}", .{filename});
             rom.deinit();
-
+            std.log.info("AFTER: {s}", .{filename});
             rom = try ROM.init(filename);
 
             editorMode = .Edit;
-        } else if (rl.isKeyPressed(rl.KeyboardKey.s)) {
+        } else if (rl.isKeyPressed(.s)) {
             commandHandler.mode = .Search;
-        } else if (rl.isKeyPressed(rl.KeyboardKey.r)) {
+        } else if (rl.isKeyPressed(.r)) {
             commandHandler.mode = .RelativeSearch;
-        } else if (rl.isKeyPressed(rl.KeyboardKey.g)) {
+        } else if (rl.isKeyPressed(.g)) {
             commandHandler.mode = .GotoAddress;
-        } else if (rl.isKeyPressed(rl.KeyboardKey.t)) {
+        } else if (rl.isKeyPressed(.t)) {
             try configureTheme();
         }
 
@@ -754,7 +755,7 @@ pub fn processCommandKeyboard() anyerror!void {
         return;
     }
 
-    if (rl.isKeyPressed(rl.KeyboardKey.backspace) or rl.isKeyPressedRepeat(rl.KeyboardKey.backspace)) {
+    if (rl.isKeyPressed(.backspace) or rl.isKeyPressedRepeat(.backspace)) {
         if (commandHandler.buffer.count == 0 or commandHandler.buffer.index == 0) {
             return;
         }
@@ -768,7 +769,7 @@ pub fn processCommandKeyboard() anyerror!void {
         commandHandler.buffer.decreaseIndex();
 
         return;
-    } else if (rl.isKeyPressed(rl.KeyboardKey.delete) or rl.isKeyPressedRepeat(rl.KeyboardKey.delete)) {
+    } else if (rl.isKeyPressed(.delete) or rl.isKeyPressedRepeat(.delete)) {
         if (commandHandler.buffer.count == 0 or commandHandler.buffer.index == commandHandler.buffer.count) {
             return;
         }
@@ -788,27 +789,27 @@ pub fn processCommandKeyboard() anyerror!void {
         }
 
         return;
-    } else if (rl.isKeyPressed(rl.KeyboardKey.home) or rl.isKeyPressedRepeat(rl.KeyboardKey.home)) {
+    } else if (rl.isKeyPressed(.home) or rl.isKeyPressedRepeat(.home)) {
         commandHandler.buffer.setIndex(0);
 
         return;
-    } else if (rl.isKeyPressed(rl.KeyboardKey.end) or rl.isKeyPressedRepeat(rl.KeyboardKey.end)) {
+    } else if (rl.isKeyPressed(.end) or rl.isKeyPressedRepeat(.end)) {
         commandHandler.buffer.setIndex(commandHandler.buffer.count);
 
         return;
-    } else if (rl.isKeyPressed(rl.KeyboardKey.left) or rl.isKeyPressedRepeat(rl.KeyboardKey.left)) {
+    } else if (rl.isKeyPressed(.left) or rl.isKeyPressedRepeat(.left)) {
         if (commandHandler.buffer.index > 0) {
             commandHandler.buffer.decreaseIndex();
         }
 
         return;
-    } else if (rl.isKeyPressed(rl.KeyboardKey.right) or rl.isKeyPressed(rl.KeyboardKey.right)) {
+    } else if (rl.isKeyPressed(.right) or rl.isKeyPressed(.right)) {
         if (commandHandler.buffer.index < commandHandler.buffer.count) {
             commandHandler.buffer.increaseIndex();
         }
 
         return;
-    } else if (rl.isKeyPressed(rl.KeyboardKey.insert) or rl.isKeyPressedRepeat(rl.KeyboardKey.insert)) {
+    } else if (rl.isKeyPressed(.insert) or rl.isKeyPressedRepeat(.insert)) {
         commandHandler.buffer.setMode(@enumFromInt(@intFromEnum(commandHandler.buffer.mode) ^ 1));
 
         if (commandHandler.buffer.count == 0) {
@@ -822,7 +823,7 @@ pub fn processCommandKeyboard() anyerror!void {
         }
 
         return;
-    } else if (rl.isKeyPressed(rl.KeyboardKey.enter)) {
+    } else if (rl.isKeyPressed(.enter)) {
         if (commandHandler.buffer.count == 0) {
             return;
         }
@@ -925,72 +926,28 @@ pub fn drawCommandFrame() anyerror!void {
         try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "C O M M A N D S", .width = SCREEN_COLUMNS });
         try lineBuffer.append(0);
 
-        lineBuffer.clearRetainingCapacity();
-
         drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, 2 * lineHeight + LINE_SPACING_HALF, style.text);
 
-        lineBuffer.clearRetainingCapacity();
+        const menuItems: [9][]const u8 = .{
+            "o     Open file             ",
+            "w     Write file            ",
+            "p     Reload file           ",
+            "s     Search text           ",
+            "r     Search text relatively",
+            "g     Go to address         ",
+            "t     Reload theme          ",
+            "Esc   Back to editor        ",
+            "q     Quit                  ",
+        };
 
-        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "o     Open file            ", .width = SCREEN_COLUMNS });
-        try lineBuffer.append(0);
+        for (0..menuItems.len, menuItems) |menuIndex, menuItem| {
+            lineBuffer.clearRetainingCapacity();
 
-        drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, 4 * lineHeight + LINE_SPACING_HALF, style.text);
+            try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = menuItem, .width = SCREEN_COLUMNS });
+            try lineBuffer.append(0);
 
-        lineBuffer.clearRetainingCapacity();
-
-        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "w     Write file           ", .width = SCREEN_COLUMNS });
-        try lineBuffer.append(0);
-
-        drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, 5 * lineHeight + LINE_SPACING_HALF, style.text);
-
-        lineBuffer.clearRetainingCapacity();
-
-        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "p     Reload file          ", .width = SCREEN_COLUMNS });
-        try lineBuffer.append(0);
-
-        drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, 6 * lineHeight + LINE_SPACING_HALF, style.text);
-
-        lineBuffer.clearRetainingCapacity();
-
-        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "s     Search text          ", .width = SCREEN_COLUMNS });
-        try lineBuffer.append(0);
-
-        drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, 7 * lineHeight + LINE_SPACING_HALF, style.text);
-
-        lineBuffer.clearRetainingCapacity();
-
-        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "r     Search text relatively", .width = SCREEN_COLUMNS });
-        try lineBuffer.append(0);
-
-        drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, 8 * lineHeight + LINE_SPACING_HALF, style.text);
-
-        lineBuffer.clearRetainingCapacity();
-
-        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "g     Go to address         ", .width = SCREEN_COLUMNS });
-        try lineBuffer.append(0);
-
-        drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, 9 * lineHeight + LINE_SPACING_HALF, style.text);
-
-        lineBuffer.clearRetainingCapacity();
-
-        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "t     Reload theme          ", .width = SCREEN_COLUMNS });
-        try lineBuffer.append(0);
-
-        drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, 10 * lineHeight + LINE_SPACING_HALF, style.text);
-
-        lineBuffer.clearRetainingCapacity();
-
-        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "Esc   Back to editor        ", .width = SCREEN_COLUMNS });
-        try lineBuffer.append(0);
-
-        drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, 11 * lineHeight + LINE_SPACING_HALF, style.text);
-
-        lineBuffer.clearRetainingCapacity();
-
-        try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "q     Quit                  ", .width = SCREEN_COLUMNS });
-        try lineBuffer.append(0);
-
-        drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, 12 * lineHeight + LINE_SPACING_HALF, style.text);
+            drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, (4 + @as(i32, @intCast(menuIndex))) * lineHeight + LINE_SPACING_HALF, style.text);
+        }
     }
 
     lineBuffer.clearRetainingCapacity();
@@ -1146,44 +1103,44 @@ pub fn advanceNibble(direction: ScrollDirection) anyerror!void {
 }
 
 pub fn processEditShortcuts() anyerror!void {
-    if (rl.isKeyPressed(rl.KeyboardKey.down) or rl.isKeyPressedRepeat(rl.KeyboardKey.down)) {
+    if (rl.isKeyPressed(.down) or rl.isKeyPressedRepeat(.down)) {
         try scrollEditBy(1, .Down);
-    } else if (rl.isKeyPressed(rl.KeyboardKey.up) or rl.isKeyPressedRepeat(rl.KeyboardKey.up)) {
+    } else if (rl.isKeyPressed(.up) or rl.isKeyPressedRepeat(.up)) {
         try scrollEditBy(1, .Up);
-    } else if (rl.isKeyPressed(rl.KeyboardKey.page_down) or rl.isKeyPressedRepeat(rl.KeyboardKey.page_down)) {
+    } else if (rl.isKeyPressed(.page_down) or rl.isKeyPressedRepeat(.page_down)) {
         try scrollEditBy(SCREEN_LINES, .Down);
-    } else if (rl.isKeyPressed(rl.KeyboardKey.page_up) or rl.isKeyPressedRepeat(rl.KeyboardKey.page_up)) {
+    } else if (rl.isKeyPressed(.page_up) or rl.isKeyPressedRepeat(.page_up)) {
         try scrollEditBy(SCREEN_LINES, .Up);
-    } else if (rl.isKeyPressed(rl.KeyboardKey.left) or rl.isKeyPressedRepeat(rl.KeyboardKey.left)) {
+    } else if (rl.isKeyPressed(.left) or rl.isKeyPressedRepeat(.left)) {
         if (editMode == .Character) {
             try scrollEditBy(1, .Left);
         } else {
             try advanceNibble(.Left);
         }
-    } else if (rl.isKeyPressed(rl.KeyboardKey.right) or rl.isKeyPressedRepeat(rl.KeyboardKey.right)) {
+    } else if (rl.isKeyPressed(.right) or rl.isKeyPressedRepeat(.right)) {
         if (editMode == .Character) {
             try scrollEditBy(1, .Right);
         } else {
             try advanceNibble(.Right);
         }
-    } else if (rl.isKeyPressed(rl.KeyboardKey.tab) or rl.isKeyPressedRepeat(rl.KeyboardKey.tab)) {
+    } else if (rl.isKeyPressed(.tab) or rl.isKeyPressedRepeat(.tab)) {
         editMode = @enumFromInt(@as(u2, @intFromEnum(editMode) ^ 1));
         editNibble = 0;
-    } else if (rl.isKeyDown(rl.KeyboardKey.home)) {
+    } else if (rl.isKeyDown(.home)) {
         editColumn = 0;
         editNibble = 0;
-    } else if (rl.isKeyDown(rl.KeyboardKey.end)) {
+    } else if (rl.isKeyDown(.end)) {
         editColumn = BYTES_PER_LINE - 1;
         editNibble = 0;
     }
 
-    if (rl.isKeyDown(rl.KeyboardKey.left_control)) {
-        if (rl.isKeyDown(rl.KeyboardKey.home)) {
+    if (rl.isKeyDown(.left_control)) {
+        if (rl.isKeyDown(.home)) {
             editColumn = 0;
             editNibble = 0;
 
             try scrollEditBy(editLine, .Up);
-        } else if (rl.isKeyDown(rl.KeyboardKey.end)) {
+        } else if (rl.isKeyDown(.end)) {
             editColumn = BYTES_PER_LINE - 1;
             editNibble = 0;
 
@@ -1191,11 +1148,11 @@ pub fn processEditShortcuts() anyerror!void {
         }
     }
 
-    if ((rl.isKeyPressed(rl.KeyboardKey.f3) or rl.isKeyPressedRepeat(rl.KeyboardKey.f3)) and (commandHandler.mode == .Search or commandHandler.mode == .RelativeSearch) and commandHandler.buffer.count > 0) {
+    if ((rl.isKeyPressed(.f3) or rl.isKeyPressedRepeat(.f3)) and (commandHandler.mode == .Search or commandHandler.mode == .RelativeSearch) and commandHandler.buffer.count > 0) {
         if (commandHandler.mode == .Search) {
-            try searchData(if (rl.isKeyDown(rl.KeyboardKey.left_shift)) .Backward else .Forward, false);
+            try searchData(if (rl.isKeyDown(.left_shift)) .Backward else .Forward, false);
         } else if (commandHandler.mode == .RelativeSearch) {
-            try relativeSearchData(if (rl.isKeyDown(rl.KeyboardKey.left_shift)) .Backward else .Forward, false);
+            try relativeSearchData(if (rl.isKeyDown(.left_shift)) .Backward else .Forward, false);
         }
     }
 }
@@ -1426,7 +1383,7 @@ pub fn main() anyerror!u8 {
 
     rl.setWindowIcon(try rl.loadImage("resources/icon.png"));
 
-    rl.setExitKey(rl.KeyboardKey.null);
+    rl.setExitKey(.null);
 
     try configureFontAndScreen();
     defer if (font.glyphCount > 0) rl.unloadFont(font);

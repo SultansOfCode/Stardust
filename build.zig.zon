@@ -1,5 +1,5 @@
 .{
-    .name = "RayxEdigor",
+    .name = "Stardust",
     .version = "0.0.1",
     .dependencies = .{
         .@"raylib-zig" = .{
