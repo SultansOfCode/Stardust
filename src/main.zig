@@ -817,8 +817,6 @@ pub fn processCommandKeyboard() anyerror!void {
 
             rom = try ROM.init(filename);
 
-            std.log.info("SEXO ANAL {s}", .{rom.filename});
-
             editorMode = .Edit;
         } else if (rl.isKeyPressed(.s)) {
             commandHandler.mode = .Search;
