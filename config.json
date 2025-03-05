@@ -1,20 +1,75 @@
 {
   "font": {
     "size": 20,
-    "characterSpacing": 4,
-    "lineSpacing": 4
+    "characterSpacing": 0,
+    "lineSpacing": 0
   },
   "style": {
-    "background": [80, 80, 80, 255],
-    "characterHighlight": [255, 255, 255, 255],
-    "headerBackground": [255, 255, 255, 255],
-    "headerText": [0, 0, 0, 255],
-    "lineHighlight": [200, 200, 200, 255],
-    "scrollbarBackground": [255, 255, 255, 255],
-    "scrollbarForeground": [0, 0, 0, 255],
-    "statusbarBackground": [255, 255, 255, 255],
-    "statusbarText": [0, 0, 0, 255],
-    "text": [200, 200, 200, 255],
-    "textHighlighted": [0, 0, 0, 255]
+    "background": {
+      "r": 80,
+      "g": 80,
+      "b": 80,
+      "a": 255
+    },
+    "characterHighlight": {
+      "r": 255,
+      "g": 255,
+      "b": 255,
+      "a": 255
+    },
+    "headerBackground": {
+      "r": 255,
+      "g": 255,
+      "b": 255,
+      "a": 255
+    },
+    "headerText": {
+      "r": 0,
+      "g": 0,
+      "b": 0,
+      "a": 255
+    },
+    "lineHighlight": {
+      "r": 200,
+      "g": 200,
+      "b": 200,
+      "a": 255
+    },
+    "scrollbarBackground": {
+      "r": 255,
+      "g": 255,
+      "b": 255,
+      "a": 255
+    },
+    "scrollbarForeground": {
+      "r": 0,
+      "g": 0,
+      "b": 0,
+      "a": 255
+    },
+    "statusbarBackground": {
+      "r": 255,
+      "g": 255,
+      "b": 255,
+      "a": 255
+    },
+    "statusbarText": {
+      "r": 0,
+      "g": 0,
+      "b": 0,
+      "a": 255
+    },
+    "text": {
+      "r": 200,
+      "g": 200,
+      "b": 200,
+      "a": 255
+    },
+    "textHighlighted": {
+      "r": 0,
+      "g": 0,
+      "b": 0,
+      "a": 255
+    }
   }
 }

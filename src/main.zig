@@ -16,18 +16,25 @@ const FontConfig: type = struct {
     lineSpacing: f32 = 0,
 };
 
+const ColorDTO: type = struct {
+    r: ?u8 = null,
+    g: ?u8 = null,
+    b: ?u8 = null,
+    a: ?u8 = null,
+};
+
 const StyleDTO: type = struct {
-    background: ?[4]u8 = null,
-    characterHighlight: ?[4]u8 = null,
-    headerBackground: ?[4]u8 = null,
-    headerText: ?[4]u8 = null,
-    lineHighlight: ?[4]u8 = null,
-    scrollbarBackground: ?[4]u8 = null,
-    scrollbarForeground: ?[4]u8 = null,
-    statusbarBackground: ?[4]u8 = null,
-    statusbarText: ?[4]u8 = null,
-    text: ?[4]u8 = null,
-    textHighlighted: ?[4]u8 = null,
+    background: ?ColorDTO = null,
+    characterHighlight: ?ColorDTO = null,
+    headerBackground: ?ColorDTO = null,
+    headerText: ?ColorDTO = null,
+    lineHighlight: ?ColorDTO = null,
+    scrollbarBackground: ?ColorDTO = null,
+    scrollbarForeground: ?ColorDTO = null,
+    statusbarBackground: ?ColorDTO = null,
+    statusbarText: ?ColorDTO = null,
+    text: ?ColorDTO = null,
+    textHighlighted: ?ColorDTO = null,
 };
 
 const StyleConfig: type = struct {
@@ -56,7 +63,9 @@ const Config: type = struct {
 
 var config: Config = Config{};
 
-const FONT_FILE: [:0]const u8 = "resources/firacode.ttf";
+const CONFIG_FILE: *const [11:0]u8 = "config.json";
+
+const FONT_FILE: *const [22:0]u8 = "resources/firacode.ttf";
 const FONT_SIZE_MIN: u8 = 16;
 const FONT_SIZE_MAX: u8 = 32;
 const FONT_CHARACTER_SPACING_MIN: f32 = 0;
@@ -439,10 +448,9 @@ pub fn loadConfiguration() anyerror!void {
     config.style.text = rl.Color.light_gray;
     config.style.textHighlighted = rl.Color.black;
 
-    const configFilename: []const u8 = "config.json";
     var configExists: bool = true;
 
-    _ = std.fs.cwd().openFile(configFilename, .{}) catch |configFileAccessError| {
+    _ = std.fs.cwd().openFile(CONFIG_FILE, .{}) catch |configFileAccessError| {
         configExists = if (configFileAccessError == error.FileNotFound) false else true;
     };
 
@@ -450,7 +458,7 @@ pub fn loadConfiguration() anyerror!void {
         return;
     }
 
-    var configFile: std.fs.File = try std.fs.cwd().openFile(configFilename, .{});
+    const configFile: std.fs.File = try std.fs.cwd().openFile(CONFIG_FILE, .{});
     defer configFile.close();
 
     const size: u64 = try configFile.getEndPos();
@@ -493,107 +501,118 @@ pub fn loadConfiguration() anyerror!void {
     }
 
     if (parsed.value.style) |configStyle| {
-        if (configStyle.background != null) {
+        if (configStyle.background) |color| {
             config.style.background = rl.Color.init(
-                configStyle.background.?[0],
-                configStyle.background.?[1],
-                configStyle.background.?[2],
-                configStyle.background.?[3],
+                color.r orelse 0,
+                color.g orelse 0,
+                color.b orelse 0,
+                color.a orelse 0,
             );
         }
 
-        if (configStyle.characterHighlight != null) {
+        if (configStyle.characterHighlight) |color| {
             config.style.characterHighlight = rl.Color.init(
-                configStyle.characterHighlight.?[0],
-                configStyle.characterHighlight.?[1],
-                configStyle.characterHighlight.?[2],
-                configStyle.characterHighlight.?[3],
+                color.r orelse 0,
+                color.g orelse 0,
+                color.b orelse 0,
+                color.a orelse 0,
             );
         }
 
-        if (configStyle.headerBackground != null) {
+        if (configStyle.headerBackground) |color| {
             config.style.headerBackground = rl.Color.init(
-                configStyle.headerBackground.?[0],
-                configStyle.headerBackground.?[1],
-                configStyle.headerBackground.?[2],
-                configStyle.headerBackground.?[3],
+                color.r orelse 0,
+                color.g orelse 0,
+                color.b orelse 0,
+                color.a orelse 0,
             );
         }
 
-        if (configStyle.headerText != null) {
+        if (configStyle.headerText) |color| {
             config.style.headerText = rl.Color.init(
-                configStyle.headerText.?[0],
-                configStyle.headerText.?[1],
-                configStyle.headerText.?[2],
-                configStyle.headerText.?[3],
+                color.r orelse 0,
+                color.g orelse 0,
+                color.b orelse 0,
+                color.a orelse 0,
             );
         }
 
-        if (configStyle.lineHighlight != null) {
+        if (configStyle.lineHighlight) |color| {
             config.style.lineHighlight = rl.Color.init(
-                configStyle.lineHighlight.?[0],
-                configStyle.lineHighlight.?[1],
-                configStyle.lineHighlight.?[2],
-                configStyle.lineHighlight.?[3],
+                color.r orelse 0,
+                color.g orelse 0,
+                color.b orelse 0,
+                color.a orelse 0,
             );
         }
 
-        if (configStyle.scrollbarBackground != null) {
+        if (configStyle.scrollbarBackground) |color| {
             config.style.scrollbarBackground = rl.Color.init(
-                configStyle.scrollbarBackground.?[0],
-                configStyle.scrollbarBackground.?[1],
-                configStyle.scrollbarBackground.?[2],
-                configStyle.scrollbarBackground.?[3],
+                color.r orelse 0,
+                color.g orelse 0,
+                color.b orelse 0,
+                color.a orelse 0,
             );
         }
 
-        if (configStyle.scrollbarForeground != null) {
+        if (configStyle.scrollbarForeground) |color| {
             config.style.scrollbarForeground = rl.Color.init(
-                configStyle.scrollbarForeground.?[0],
-                configStyle.scrollbarForeground.?[1],
-                configStyle.scrollbarForeground.?[2],
-                configStyle.scrollbarForeground.?[3],
+                color.r orelse 0,
+                color.g orelse 0,
+                color.b orelse 0,
+                color.a orelse 0,
             );
         }
 
-        if (configStyle.statusbarBackground != null) {
+        if (configStyle.statusbarBackground) |color| {
             config.style.statusbarBackground = rl.Color.init(
-                configStyle.statusbarBackground.?[0],
-                configStyle.statusbarBackground.?[1],
-                configStyle.statusbarBackground.?[2],
-                configStyle.statusbarBackground.?[3],
+                color.r orelse 0,
+                color.g orelse 0,
+                color.b orelse 0,
+                color.a orelse 0,
             );
         }
 
-        if (configStyle.statusbarText != null) {
+        if (configStyle.statusbarText) |color| {
             config.style.statusbarText = rl.Color.init(
-                configStyle.statusbarText.?[0],
-                configStyle.statusbarText.?[1],
-                configStyle.statusbarText.?[2],
-                configStyle.statusbarText.?[3],
+                color.r orelse 0,
+                color.g orelse 0,
+                color.b orelse 0,
+                color.a orelse 0,
             );
         }
 
-        if (configStyle.text != null) {
+        if (configStyle.text) |color| {
             config.style.text = rl.Color.init(
-                configStyle.text.?[0],
-                configStyle.text.?[1],
-                configStyle.text.?[2],
-                configStyle.text.?[3],
+                color.r orelse 0,
+                color.g orelse 0,
+                color.b orelse 0,
+                color.a orelse 0,
             );
         }
 
-        if (configStyle.textHighlighted != null) {
+        if (configStyle.textHighlighted) |color| {
             config.style.textHighlighted = rl.Color.init(
-                configStyle.textHighlighted.?[0],
-                configStyle.textHighlighted.?[1],
-                configStyle.textHighlighted.?[2],
-                configStyle.textHighlighted.?[3],
+                color.r orelse 0,
+                color.g orelse 0,
+                color.b orelse 0,
+                color.a orelse 0,
             );
         }
     }
 
     try configureFontAndScreen();
+}
+
+pub fn saveConfiguration() anyerror!void {
+    var string = std.ArrayList(u8).init(gpa.allocator());
+
+    try std.json.stringify(config, .{}, string.writer());
+
+    const configFile: std.fs.File = try std.fs.cwd().createFile(CONFIG_FILE, .{});
+    defer configFile.close();
+
+    _ = try configFile.writeAll(string.items);
 }
 
 pub fn searchData(direction: SearchDirection, retry: bool) anyerror!void {
@@ -769,10 +788,12 @@ pub fn processEditorShortcuts() anyerror!void {
             config.font.size = @min(config.font.size + 1, FONT_SIZE_MAX);
 
             try configureFontAndScreen();
+            try saveConfiguration();
         } else if (rl.isKeyPressed(.minus)) {
             config.font.size = @max(FONT_SIZE_MIN, config.font.size - 1);
 
             try configureFontAndScreen();
+            try saveConfiguration();
         }
     }
 }
@@ -786,8 +807,12 @@ pub fn processEditorMouse() anyerror!void {
 
             if (wheel < 0) {
                 config.font.size = @max(FONT_SIZE_MIN, config.font.size - amount);
+
+                try saveConfiguration();
             } else {
                 config.font.size = @min(config.font.size + amount, FONT_SIZE_MAX);
+
+                try saveConfiguration();
             }
 
             try configureFontAndScreen();
@@ -1481,6 +1506,10 @@ pub fn main() anyerror!u8 {
 
     lineBuffer = std.ArrayList(u8).init(gpa.allocator());
     defer lineBuffer.deinit();
+
+    rl.setConfigFlags(.{
+        .window_undecorated = true,
+    });
 
     rl.initWindow(814, 640, "Stardust");
     defer rl.closeWindow();
