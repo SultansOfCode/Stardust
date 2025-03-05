@@ -54,8 +54,6 @@ const SCREEN_COLUMNS: u31 = 8 + 1 + (BYTES_PER_LINE * 2) + (BYTES_PER_LINE - 1) 
 // Bytes as char .    ----------------------------------------------------------------´                |
 // Scrollbar          ---------------------------------------------------------------------------------´
 
-const HEAP_SIZE: u31 = 4096;
-
 const SCROLLBAR_SCALE: f32 = 2.1;
 
 const HEXADECIMAL_CHARACTERS: [22]u8 = .{
@@ -71,7 +69,7 @@ const EditMode: type = enum {
     Hexadecimal,
 };
 
-var editorMode: EditorMode = .Edit;
+var editorMode: EditorMode = .Command;
 
 var fontSize: u31 = 20;
 var font: rl.Font = undefined;
@@ -88,8 +86,6 @@ var scrollbarHeight: u31 = undefined;
 var scrollbarHeightHalf: u31 = undefined;
 var scrollbarClicked: bool = false;
 
-var HEAP: [HEAP_SIZE]u8 = undefined;
-var fba: std.heap.FixedBufferAllocator = undefined;
 var gpa: std.heap.GeneralPurposeAllocator(.{}) = undefined;
 
 var editLine: u31 = 0;
@@ -110,7 +106,7 @@ const ROMError: type = error{
 };
 
 const ROM: type = struct {
-    filename: []const u8,
+    filename: []u8,
     data: []u8,
     size: u64,
     lines: u31,
@@ -120,7 +116,7 @@ const ROM: type = struct {
     symbolReplacements: ?std.AutoHashMap(u8, u8),
     typingReplacements: ?std.AutoHashMap(u8, u8),
 
-    pub fn init(filename: []const u8) anyerror!ROM {
+    pub fn init(filename: []u8) anyerror!ROM {
         var romFile: std.fs.File = try std.fs.cwd().openFile(filename, .{});
         defer romFile.close();
 
@@ -144,7 +140,7 @@ const ROM: type = struct {
 
         const extension: []const u8 = std.fs.path.extension(filename);
         const truncatedName: []const u8 = filename[0 .. filename.len - extension.len];
-        const tableFilename: [:0]u8 = try std.mem.joinZ(fba.allocator(), "", &.{ truncatedName, ".tbl" });
+        const tableFilename: [:0]u8 = try std.mem.joinZ(gpa.allocator(), "", &.{ truncatedName, ".tbl" });
 
         var symbolReplacements: ?std.AutoHashMap(u8, u8) = null;
         var typingReplacements: ?std.AutoHashMap(u8, u8) = null;
@@ -155,8 +151,8 @@ const ROM: type = struct {
         };
 
         if (tableExists) {
-            symbolReplacements = std.AutoHashMap(u8, u8).init(fba.allocator());
-            typingReplacements = std.AutoHashMap(u8, u8).init(fba.allocator());
+            symbolReplacements = std.AutoHashMap(u8, u8).init(gpa.allocator());
+            typingReplacements = std.AutoHashMap(u8, u8).init(gpa.allocator());
 
             var tableFile: std.fs.File = try std.fs.cwd().openFile(tableFilename, .{});
             defer tableFile.close();
@@ -206,9 +202,12 @@ const ROM: type = struct {
         }
 
         const lines: u31 = @as(u31, @intCast(try std.math.divCeil(usize, size, BYTES_PER_LINE)));
+        const romFilename: []u8 = try gpa.allocator().alloc(u8, filename.len);
+
+        @memcpy(romFilename, filename);
 
         return ROM{
-            .filename = filename,
+            .filename = romFilename,
             .data = data,
             .size = size,
             .address = 0,
@@ -223,6 +222,10 @@ const ROM: type = struct {
     pub fn deinit(self: *ROM) void {
         if (self.size > 0) {
             gpa.allocator().free(self.data);
+        }
+
+        if (self.filename.len > 0) {
+            gpa.allocator().free(self.filename);
         }
 
         if (self.symbolReplacements != null) {
@@ -680,7 +683,7 @@ pub fn processEditorShortcuts() anyerror!void {
             commandHandler.mode = .Menu;
 
             commandHandler.reset();
-        } else {
+        } else if (rom.size > 0) {
             editorMode = .Edit;
         }
     }
@@ -729,11 +732,16 @@ pub fn processCommandKeyboard() anyerror!void {
                 return;
             }
 
-            const filename = rom.filename[0..rom.filename.len];
-            std.log.info("BEFORE: {any}", .{filename});
+            const filename: []u8 = try gpa.allocator().alloc(u8, rom.filename.len);
+            defer gpa.allocator().free(filename);
+
+            @memcpy(filename, rom.filename);
+
             rom.deinit();
-            std.log.info("AFTER: {s}", .{filename});
+
             rom = try ROM.init(filename);
+
+            std.log.info("SEXO ANAL {s}", .{rom.filename});
 
             editorMode = .Edit;
         } else if (rl.isKeyPressed(.s)) {
@@ -1357,10 +1365,9 @@ pub fn drawEditFrame() anyerror!void {
 }
 
 pub fn main() anyerror!u8 {
-    fba = std.heap.FixedBufferAllocator.init(&HEAP);
     gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
-    headerBuffer = std.ArrayList(u8).init(fba.allocator());
+    headerBuffer = std.ArrayList(u8).init(gpa.allocator());
     defer headerBuffer.deinit();
 
     try headerBuffer.appendSlice(" Offset  ");
@@ -1375,7 +1382,7 @@ pub fn main() anyerror!u8 {
 
     try headerBuffer.append(0);
 
-    lineBuffer = std.ArrayList(u8).init(fba.allocator());
+    lineBuffer = std.ArrayList(u8).init(gpa.allocator());
     defer lineBuffer.deinit();
 
     rl.initWindow(814, 640, "Stardust");
@@ -1389,9 +1396,6 @@ pub fn main() anyerror!u8 {
     defer if (font.glyphCount > 0) rl.unloadFont(font);
 
     try configureTheme();
-
-    rom = try ROM.init("resources/test.txt");
-    defer rom.deinit();
 
     rl.setTargetFPS(60);
 
