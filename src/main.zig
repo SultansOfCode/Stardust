@@ -4,7 +4,19 @@
 const std: type = @import("std");
 const rl: type = @import("raylib");
 
-const StyleConfig: type = struct {
+const FontDTO: type = struct {
+    size: ?u8 = null,
+    characterSpacing: ?f32 = null,
+    lineSpacing: ?f32 = null,
+};
+
+const FontConfig: type = struct {
+    size: u8 = 20,
+    characterSpacing: f32 = 0,
+    lineSpacing: f32 = 0,
+};
+
+const StyleDTO: type = struct {
     background: ?[4]u8 = null,
     characterHighlight: ?[4]u8 = null,
     headerBackground: ?[4]u8 = null,
@@ -18,7 +30,7 @@ const StyleConfig: type = struct {
     textHighlighted: ?[4]u8 = null,
 };
 
-const Style: type = struct {
+const StyleConfig: type = struct {
     background: rl.Color = rl.Color.dark_gray,
     characterHighlight: rl.Color = rl.Color.white,
     headerBackground: rl.Color = rl.Color.white,
@@ -32,7 +44,17 @@ const Style: type = struct {
     textHighlighted: rl.Color = rl.Color.black,
 };
 
-var style: Style = Style{};
+const ConfigDTO: type = struct {
+    font: ?FontDTO = null,
+    style: ?StyleDTO = null,
+};
+
+const Config: type = struct {
+    font: FontConfig = FontConfig{},
+    style: StyleConfig = StyleConfig{},
+};
+
+var config: Config = Config{};
 
 const FONT_FILE: [:0]const u8 = "resources/firacode.ttf";
 const FONT_SIZE_MIN: u31 = 16;
@@ -350,146 +372,6 @@ pub fn drawTextCustom(text: [:0]const u8, x: i32, y: i32, color: rl.Color) void 
     }, @floatFromInt(font.baseSize), FONT_SPACING, color);
 }
 
-pub fn configureTheme() anyerror!void {
-    style.background = rl.Color.dark_gray;
-    style.characterHighlight = rl.Color.white;
-    style.headerBackground = rl.Color.white;
-    style.headerText = rl.Color.black;
-    style.lineHighlight = rl.Color.light_gray;
-    style.scrollbarBackground = rl.Color.white;
-    style.scrollbarForeground = rl.Color.black;
-    style.statusbarBackground = rl.Color.white;
-    style.statusbarText = rl.Color.black;
-    style.text = rl.Color.light_gray;
-    style.textHighlighted = rl.Color.black;
-
-    const themeFilename: []const u8 = "resources/theme.json";
-    var themeExists: bool = true;
-
-    _ = std.fs.cwd().openFile(themeFilename, .{}) catch |themeFileAccessError| {
-        themeExists = if (themeFileAccessError == error.FileNotFound) false else true;
-    };
-
-    if (!themeExists) {
-        return;
-    }
-
-    var themeFile: std.fs.File = try std.fs.cwd().openFile(themeFilename, .{});
-    defer themeFile.close();
-
-    const size: u64 = try themeFile.getEndPos();
-
-    if (size == 0) {
-        return;
-    }
-
-    const data: []u8 = try gpa.allocator().alloc(u8, size);
-
-    _ = try themeFile.readAll(data);
-
-    const parsed = try std.json.parseFromSlice(StyleConfig, gpa.allocator(), data, .{});
-    defer parsed.deinit();
-
-    if (parsed.value.background != null) {
-        style.background = rl.Color.init(
-            parsed.value.background.?[0],
-            parsed.value.background.?[1],
-            parsed.value.background.?[2],
-            parsed.value.background.?[3],
-        );
-    }
-
-    if (parsed.value.characterHighlight != null) {
-        style.characterHighlight = rl.Color.init(
-            parsed.value.characterHighlight.?[0],
-            parsed.value.characterHighlight.?[1],
-            parsed.value.characterHighlight.?[2],
-            parsed.value.characterHighlight.?[3],
-        );
-    }
-
-    if (parsed.value.headerBackground != null) {
-        style.headerBackground = rl.Color.init(
-            parsed.value.headerBackground.?[0],
-            parsed.value.headerBackground.?[1],
-            parsed.value.headerBackground.?[2],
-            parsed.value.headerBackground.?[3],
-        );
-    }
-
-    if (parsed.value.headerText != null) {
-        style.headerText = rl.Color.init(
-            parsed.value.headerText.?[0],
-            parsed.value.headerText.?[1],
-            parsed.value.headerText.?[2],
-            parsed.value.headerText.?[3],
-        );
-    }
-
-    if (parsed.value.lineHighlight != null) {
-        style.lineHighlight = rl.Color.init(
-            parsed.value.lineHighlight.?[0],
-            parsed.value.lineHighlight.?[1],
-            parsed.value.lineHighlight.?[2],
-            parsed.value.lineHighlight.?[3],
-        );
-    }
-
-    if (parsed.value.scrollbarBackground != null) {
-        style.scrollbarBackground = rl.Color.init(
-            parsed.value.scrollbarBackground.?[0],
-            parsed.value.scrollbarBackground.?[1],
-            parsed.value.scrollbarBackground.?[2],
-            parsed.value.scrollbarBackground.?[3],
-        );
-    }
-
-    if (parsed.value.scrollbarForeground != null) {
-        style.scrollbarForeground = rl.Color.init(
-            parsed.value.scrollbarForeground.?[0],
-            parsed.value.scrollbarForeground.?[1],
-            parsed.value.scrollbarForeground.?[2],
-            parsed.value.scrollbarForeground.?[3],
-        );
-    }
-
-    if (parsed.value.statusbarBackground != null) {
-        style.statusbarBackground = rl.Color.init(
-            parsed.value.statusbarBackground.?[0],
-            parsed.value.statusbarBackground.?[1],
-            parsed.value.statusbarBackground.?[2],
-            parsed.value.statusbarBackground.?[3],
-        );
-    }
-
-    if (parsed.value.statusbarText != null) {
-        style.statusbarText = rl.Color.init(
-            parsed.value.statusbarText.?[0],
-            parsed.value.statusbarText.?[1],
-            parsed.value.statusbarText.?[2],
-            parsed.value.statusbarText.?[3],
-        );
-    }
-
-    if (parsed.value.text != null) {
-        style.text = rl.Color.init(
-            parsed.value.text.?[0],
-            parsed.value.text.?[1],
-            parsed.value.text.?[2],
-            parsed.value.text.?[3],
-        );
-    }
-
-    if (parsed.value.textHighlighted != null) {
-        style.textHighlighted = rl.Color.init(
-            parsed.value.textHighlighted.?[0],
-            parsed.value.textHighlighted.?[1],
-            parsed.value.textHighlighted.?[2],
-            parsed.value.textHighlighted.?[3],
-        );
-    }
-}
-
 pub fn configureFontAndScreen() anyerror!void {
     if (font.glyphCount > 0) {
         rl.unloadFont(font);
@@ -518,6 +400,150 @@ pub fn configureFontAndScreen() anyerror!void {
     scrollbarHeightHalf = @divFloor(scrollbarHeight, 2);
 
     rl.setWindowSize(screenWidth, screenHeight);
+}
+
+pub fn loadConfiguration() anyerror!void {
+    config.style.background = rl.Color.dark_gray;
+    config.style.characterHighlight = rl.Color.white;
+    config.style.headerBackground = rl.Color.white;
+    config.style.headerText = rl.Color.black;
+    config.style.lineHighlight = rl.Color.light_gray;
+    config.style.scrollbarBackground = rl.Color.white;
+    config.style.scrollbarForeground = rl.Color.black;
+    config.style.statusbarBackground = rl.Color.white;
+    config.style.statusbarText = rl.Color.black;
+    config.style.text = rl.Color.light_gray;
+    config.style.textHighlighted = rl.Color.black;
+
+    const configFilename: []const u8 = "config.json";
+    var configExists: bool = true;
+
+    _ = std.fs.cwd().openFile(configFilename, .{}) catch |configFileAccessError| {
+        configExists = if (configFileAccessError == error.FileNotFound) false else true;
+    };
+
+    if (!configExists) {
+        return;
+    }
+
+    var configFile: std.fs.File = try std.fs.cwd().openFile(configFilename, .{});
+    defer configFile.close();
+
+    const size: u64 = try configFile.getEndPos();
+
+    if (size == 0) {
+        return;
+    }
+
+    const data: []u8 = try gpa.allocator().alloc(u8, size);
+
+    _ = try configFile.readAll(data);
+
+    const parsed = try std.json.parseFromSlice(ConfigDTO, gpa.allocator(), data, .{});
+    defer parsed.deinit();
+
+    if (parsed.value.style) |style| {
+        if (style.background != null) {
+            config.style.background = rl.Color.init(
+                style.background.?[0],
+                style.background.?[1],
+                style.background.?[2],
+                style.background.?[3],
+            );
+        }
+
+        if (style.characterHighlight != null) {
+            config.style.characterHighlight = rl.Color.init(
+                style.characterHighlight.?[0],
+                style.characterHighlight.?[1],
+                style.characterHighlight.?[2],
+                style.characterHighlight.?[3],
+            );
+        }
+
+        if (style.headerBackground != null) {
+            config.style.headerBackground = rl.Color.init(
+                style.headerBackground.?[0],
+                style.headerBackground.?[1],
+                style.headerBackground.?[2],
+                style.headerBackground.?[3],
+            );
+        }
+
+        if (style.headerText != null) {
+            config.style.headerText = rl.Color.init(
+                style.headerText.?[0],
+                style.headerText.?[1],
+                style.headerText.?[2],
+                style.headerText.?[3],
+            );
+        }
+
+        if (style.lineHighlight != null) {
+            config.style.lineHighlight = rl.Color.init(
+                style.lineHighlight.?[0],
+                style.lineHighlight.?[1],
+                style.lineHighlight.?[2],
+                style.lineHighlight.?[3],
+            );
+        }
+
+        if (style.scrollbarBackground != null) {
+            config.style.scrollbarBackground = rl.Color.init(
+                style.scrollbarBackground.?[0],
+                style.scrollbarBackground.?[1],
+                style.scrollbarBackground.?[2],
+                style.scrollbarBackground.?[3],
+            );
+        }
+
+        if (style.scrollbarForeground != null) {
+            config.style.scrollbarForeground = rl.Color.init(
+                style.scrollbarForeground.?[0],
+                style.scrollbarForeground.?[1],
+                style.scrollbarForeground.?[2],
+                style.scrollbarForeground.?[3],
+            );
+        }
+
+        if (style.statusbarBackground != null) {
+            config.style.statusbarBackground = rl.Color.init(
+                style.statusbarBackground.?[0],
+                style.statusbarBackground.?[1],
+                style.statusbarBackground.?[2],
+                style.statusbarBackground.?[3],
+            );
+        }
+
+        if (style.statusbarText != null) {
+            config.style.statusbarText = rl.Color.init(
+                style.statusbarText.?[0],
+                style.statusbarText.?[1],
+                style.statusbarText.?[2],
+                style.statusbarText.?[3],
+            );
+        }
+
+        if (style.text != null) {
+            config.style.text = rl.Color.init(
+                style.text.?[0],
+                style.text.?[1],
+                style.text.?[2],
+                style.text.?[3],
+            );
+        }
+
+        if (style.textHighlighted != null) {
+            config.style.textHighlighted = rl.Color.init(
+                style.textHighlighted.?[0],
+                style.textHighlighted.?[1],
+                style.textHighlighted.?[2],
+                style.textHighlighted.?[3],
+            );
+        }
+    }
+
+    try configureFontAndScreen();
 }
 
 pub fn searchData(direction: SearchDirection, retry: bool) anyerror!void {
@@ -751,7 +777,7 @@ pub fn processCommandKeyboard() anyerror!void {
         } else if (rl.isKeyPressed(.g)) {
             commandHandler.mode = .GotoAddress;
         } else if (rl.isKeyPressed(.t)) {
-            try configureTheme();
+            try loadConfiguration();
         }
 
         commandHandler.reset();
@@ -913,20 +939,20 @@ pub fn processCommandKeyboard() anyerror!void {
 
 pub fn drawCommandFrame() anyerror!void {
     // Clear background
-    rl.clearBackground(style.background);
+    rl.clearBackground(config.style.background);
 
     // Draw top bar
-    rl.drawRectangle(0, 0, screenWidth, lineHeight, style.headerBackground);
+    rl.drawRectangle(0, 0, screenWidth, lineHeight, config.style.headerBackground);
 
     lineBuffer.clearRetainingCapacity();
 
     try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "Stardust", .width = SCREEN_COLUMNS });
     try lineBuffer.append(0);
 
-    drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, LINE_SPACING_HALF, style.headerText);
+    drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, LINE_SPACING_HALF, config.style.headerText);
 
     // Draw status bar
-    rl.drawRectangle(0, screenHeight - lineHeight, screenWidth, lineHeight, style.statusbarBackground);
+    rl.drawRectangle(0, screenHeight - lineHeight, screenWidth, lineHeight, config.style.statusbarBackground);
 
     if (commandHandler.mode == .Menu) {
         lineBuffer.clearRetainingCapacity();
@@ -934,7 +960,7 @@ pub fn drawCommandFrame() anyerror!void {
         try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "C O M M A N D S", .width = SCREEN_COLUMNS });
         try lineBuffer.append(0);
 
-        drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, 2 * lineHeight + LINE_SPACING_HALF, style.text);
+        drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, 2 * lineHeight + LINE_SPACING_HALF, config.style.text);
 
         const menuItems: [9][]const u8 = .{
             "o     Open file             ",
@@ -954,7 +980,7 @@ pub fn drawCommandFrame() anyerror!void {
             try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = menuItem, .width = SCREEN_COLUMNS });
             try lineBuffer.append(0);
 
-            drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, (4 + @as(i32, @intCast(menuIndex))) * lineHeight + LINE_SPACING_HALF, style.text);
+            drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, (4 + @as(i32, @intCast(menuIndex))) * lineHeight + LINE_SPACING_HALF, config.style.text);
         }
     }
 
@@ -963,14 +989,14 @@ pub fn drawCommandFrame() anyerror!void {
     try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "By Wagner \"SultansOfCode\" Barongello", .width = SCREEN_COLUMNS });
     try lineBuffer.append(0);
 
-    drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, (SCREEN_LINES - 2) * lineHeight + LINE_SPACING_HALF, style.text);
+    drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, (SCREEN_LINES - 2) * lineHeight + LINE_SPACING_HALF, config.style.text);
 
     lineBuffer.clearRetainingCapacity();
 
     try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "Version 0.1b", .width = SCREEN_COLUMNS });
     try lineBuffer.append(0);
 
-    drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, (SCREEN_LINES - 1) * lineHeight + LINE_SPACING_HALF, style.text);
+    drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, (SCREEN_LINES - 1) * lineHeight + LINE_SPACING_HALF, config.style.text);
 
     // Handle status bar
     lineBuffer.clearRetainingCapacity();
@@ -988,14 +1014,14 @@ pub fn drawCommandFrame() anyerror!void {
 
     const inputY: u31 = screenHeight - lineHeight + LINE_SPACING_HALF;
 
-    drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, inputY, style.statusbarText);
+    drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, inputY, config.style.statusbarText);
 
     // Handle input
     const inputX: u31 = (commandHandler.textSize + commandHandler.buffer.index) * characterWidth;
 
-    rl.drawRectangleLines(inputX, inputY, if (commandHandler.buffer.mode == .Insert) 1 else characterWidth, lineHeight, style.statusbarText);
+    rl.drawRectangleLines(inputX, inputY, if (commandHandler.buffer.mode == .Insert) 1 else characterWidth, lineHeight, config.style.statusbarText);
 
-    drawTextCustom(&commandHandler.buffer.data, commandHandler.textSize * characterWidth, inputY, style.statusbarText);
+    drawTextCustom(&commandHandler.buffer.data, commandHandler.textSize * characterWidth, inputY, config.style.statusbarText);
 }
 
 pub fn scrollEditBy(amount: u31, direction: ScrollDirection) anyerror!void {
@@ -1273,15 +1299,15 @@ pub fn drawEditFrame() anyerror!void {
     const viewTopLine: u31 = @divFloor(rom.address, BYTES_PER_LINE);
 
     // Clear background
-    rl.clearBackground(style.background);
+    rl.clearBackground(config.style.background);
 
     // Draw top bar
-    rl.drawRectangle(0, 0, screenWidth, lineHeight, style.headerBackground);
+    rl.drawRectangle(0, 0, screenWidth, lineHeight, config.style.headerBackground);
 
-    drawTextCustom(@ptrCast(headerBuffer.items), FONT_SPACING_HALF, LINE_SPACING_HALF, style.headerText);
+    drawTextCustom(@ptrCast(headerBuffer.items), FONT_SPACING_HALF, LINE_SPACING_HALF, config.style.headerText);
 
     // Draw status bar
-    rl.drawRectangle(0, screenHeight - lineHeight, screenWidth, lineHeight, style.statusbarBackground);
+    rl.drawRectangle(0, screenHeight - lineHeight, screenWidth, lineHeight, config.style.statusbarBackground);
 
     lineBuffer.clearRetainingCapacity();
 
@@ -1300,10 +1326,10 @@ pub fn drawEditFrame() anyerror!void {
     try lineBuffer.writer().print("{s}", .{if (editMode == .Character) "Character" else "Hexadecimal"});
     try lineBuffer.append(0);
 
-    drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, screenHeight - lineHeight + LINE_SPACING_HALF, style.statusbarText);
+    drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, screenHeight - lineHeight + LINE_SPACING_HALF, config.style.statusbarText);
 
     // Draw selected highlight
-    rl.drawRectangle(0, (editLine - viewTopLine + 1) * lineHeight, screenWidth - characterWidth, lineHeight, style.lineHighlight);
+    rl.drawRectangle(0, (editLine - viewTopLine + 1) * lineHeight, screenWidth - characterWidth, lineHeight, config.style.lineHighlight);
 
     const editHighlightY: i32 = (editLine - viewTopLine + 1) * lineHeight;
     const editHexadecimalHighlightX: i32 = (8 + 1 + (editColumn * 3) + editNibble) * characterWidth;
@@ -1311,9 +1337,9 @@ pub fn drawEditFrame() anyerror!void {
 
     if (editMode == .Character) {
         rl.drawRectangleLines(editHexadecimalHighlightX, editHighlightY, characterWidth * 2, lineHeight, rl.Color.black);
-        rl.drawRectangle(editCharacterHighlightX, editHighlightY, characterWidth, lineHeight, style.characterHighlight);
+        rl.drawRectangle(editCharacterHighlightX, editHighlightY, characterWidth, lineHeight, config.style.characterHighlight);
     } else {
-        rl.drawRectangle(editHexadecimalHighlightX, editHighlightY, characterWidth, lineHeight, style.characterHighlight);
+        rl.drawRectangle(editHexadecimalHighlightX, editHighlightY, characterWidth, lineHeight, config.style.characterHighlight);
         rl.drawRectangleLines(editCharacterHighlightX, editHighlightY, characterWidth, lineHeight, rl.Color.black);
     }
 
@@ -1322,8 +1348,8 @@ pub fn drawEditFrame() anyerror!void {
     const scrollbarX: u31 = screenWidth - characterWidth;
     const scrollbarY: u31 = @as(u31, @intFromFloat(@as(f32, @floatFromInt(editLine)) * @as(f32, @floatFromInt(scrollbarSpace)) / @as(f32, @floatFromInt(rom.lastLine)) + @as(f32, @floatFromInt(lineHeight))));
 
-    rl.drawRectangle(screenWidth - characterWidth, lineHeight, characterWidth, SCREEN_LINES * lineHeight, style.scrollbarBackground);
-    rl.drawRectangle(scrollbarX, scrollbarY, characterWidth, scrollbarHeight, style.scrollbarForeground);
+    rl.drawRectangle(screenWidth - characterWidth, lineHeight, characterWidth, SCREEN_LINES * lineHeight, config.style.scrollbarBackground);
+    rl.drawRectangle(scrollbarX, scrollbarY, characterWidth, scrollbarHeight, config.style.scrollbarForeground);
 
     // Draw contents
     for (0..SCREEN_LINES) |i| {
@@ -1360,7 +1386,7 @@ pub fn drawEditFrame() anyerror!void {
 
         try lineBuffer.append(0);
 
-        drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, @as(u31, @intCast(i + 1)) * lineHeight + LINE_SPACING_HALF, if (viewTopLine + @as(u31, @intCast(i)) == editLine) style.textHighlighted else style.text);
+        drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, @as(u31, @intCast(i + 1)) * lineHeight + LINE_SPACING_HALF, if (viewTopLine + @as(u31, @intCast(i)) == editLine) config.style.textHighlighted else config.style.text);
     }
 }
 
@@ -1392,10 +1418,8 @@ pub fn main() anyerror!u8 {
 
     rl.setExitKey(.null);
 
-    try configureFontAndScreen();
+    try loadConfiguration();
     defer if (font.glyphCount > 0) rl.unloadFont(font);
-
-    try configureTheme();
 
     rl.setTargetFPS(60);
 

@@ -1,0 +1,20 @@
+{
+  "font": {
+    "size": 20,
+    "characterSpacing": 4,
+    "lineSpacing": 4
+  },
+  "style": {
+    "background": [80, 80, 80, 255],
+    "characterHighlight": [255, 255, 255, 255],
+    "headerBackground": [255, 255, 255, 255],
+    "headerText": [0, 0, 0, 255],
+    "lineHighlight": [200, 200, 200, 255],
+    "scrollbarBackground": [255, 255, 255, 255],
+    "scrollbarForeground": [0, 0, 0, 255],
+    "statusbarBackground": [255, 255, 255, 255],
+    "statusbarText": [0, 0, 0, 255],
+    "text": [200, 200, 200, 255],
+    "textHighlighted": [0, 0, 0, 255]
+  }
+}
