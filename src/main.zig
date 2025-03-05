@@ -57,13 +57,18 @@ const Config: type = struct {
 var config: Config = Config{};
 
 const FONT_FILE: [:0]const u8 = "resources/firacode.ttf";
-const FONT_SIZE_MIN: u31 = 16;
-const FONT_SIZE_MAX: u31 = 32;
-const FONT_SPACING: u31 = 0;
-const FONT_SPACING_HALF: u31 = @divFloor(FONT_SPACING, 2);
+const FONT_SIZE_MIN: u8 = 16;
+const FONT_SIZE_MAX: u8 = 32;
+const FONT_CHARACTER_SPACING_MIN: f32 = 0;
+const FONT_CHARACTER_SPACING_MAX: f32 = 16;
+const FONT_LINE_SPACING_MIN: f32 = 0;
+const FONT_LINE_SPACING_MAX: f32 = 16;
 
-const LINE_SPACING: u31 = 0;
-const LINE_SPACING_HALF: u31 = @divFloor(LINE_SPACING, 2);
+var fontSpacing: u31 = undefined;
+var fontSpacingHalf: u31 = undefined;
+
+var lineSpacing: u31 = undefined;
+var lineSpacingHalf: u31 = undefined;
 
 const BYTES_PER_LINE: u8 = 16;
 const SCREEN_LINES: u31 = 32;
@@ -93,10 +98,7 @@ const EditMode: type = enum {
 
 var editorMode: EditorMode = .Command;
 
-var fontSize: u31 = 20;
 var font: rl.Font = undefined;
-var fontWidth: f32 = undefined;
-var fontHeight: f32 = undefined;
 
 var screenWidth: u31 = undefined;
 var screenHeight: u31 = undefined;
@@ -366,10 +368,17 @@ const CommandHandler: type = struct {
 var commandHandler: CommandHandler = .{};
 
 pub fn drawTextCustom(text: [:0]const u8, x: i32, y: i32, color: rl.Color) void {
-    rl.drawTextEx(font, text, rl.Vector2{
-        .x = @floatFromInt(x),
-        .y = @floatFromInt(y),
-    }, @floatFromInt(font.baseSize), FONT_SPACING, color);
+    rl.drawTextEx(
+        font,
+        text,
+        rl.Vector2{
+            .x = @floatFromInt(x),
+            .y = @floatFromInt(y),
+        },
+        @floatFromInt(font.baseSize),
+        @floatFromInt(fontSpacing),
+        color,
+    );
 }
 
 pub fn configureFontAndScreen() anyerror!void {
@@ -377,25 +386,36 @@ pub fn configureFontAndScreen() anyerror!void {
         rl.unloadFont(font);
     }
     // const x = @embedFile(FONT_FILE);
-    // font = rl.loadFontFromMemory(".ttf", x, fontSize, null);
-    font = try rl.loadFontEx(FONT_FILE, fontSize, null);
+    // font = rl.loadFontFromMemory(".ttf", x, config.font.size, null);
+    font = try rl.loadFontEx(FONT_FILE, config.font.size, null);
 
     if (font.glyphCount == 0) {
         return ROMError.EmptyFont;
     }
 
-    const fontMeasurements: rl.Vector2 = rl.measureTextEx(font, "K", @floatFromInt(font.baseSize), FONT_SPACING);
+    fontSpacing = @as(u31, @intFromFloat(@round(config.font.characterSpacing)));
+    fontSpacingHalf = @divFloor(fontSpacing, 2);
 
-    fontWidth = fontMeasurements.x;
-    fontHeight = fontMeasurements.y;
+    lineSpacing = @as(u31, @intFromFloat(@round(config.font.lineSpacing)));
+    lineSpacingHalf = @divFloor(lineSpacing, 2);
 
-    screenWidth = @as(u31, @intFromFloat(SCREEN_COLUMNS * fontWidth + (SCREEN_COLUMNS - 1) * FONT_SPACING));
-    screenHeight = @as(u31, @intFromFloat((SCREEN_LINES + 2) * fontHeight + (SCREEN_LINES + 2) * LINE_SPACING));
+    const fontMeasurements: rl.Vector2 = rl.measureTextEx(
+        font,
+        "K",
+        @floatFromInt(font.baseSize),
+        @floatFromInt(fontSpacing),
+    );
+
+    const fontWidth: u31 = @as(u31, @intFromFloat(@round(fontMeasurements.x)));
+    const fontHeight: u31 = @as(u31, @intFromFloat(@round(fontMeasurements.y)));
+
+    screenWidth = SCREEN_COLUMNS * fontWidth + (SCREEN_COLUMNS - 1) * fontSpacing;
+    screenHeight = (SCREEN_LINES + 2) * fontHeight + (SCREEN_LINES + 2) * lineSpacing;
     // Here it does not take off 1 because there are half line spacing      ^
     // on top and half at bottom -------------------------------------------´
 
-    characterWidth = @intFromFloat(@round(fontMeasurements.x) + FONT_SPACING);
-    lineHeight = @intFromFloat(@round(fontMeasurements.y) + LINE_SPACING);
+    characterWidth = @as(u31, @intFromFloat(@round(fontMeasurements.x))) + fontSpacing;
+    lineHeight = @as(u31, @intFromFloat(@round(fontMeasurements.y))) + lineSpacing;
     scrollbarHeight = @as(u31, @intFromFloat(@as(f32, @floatFromInt(lineHeight)) * SCROLLBAR_SCALE));
     scrollbarHeightHalf = @divFloor(scrollbarHeight, 2);
 
@@ -403,6 +423,10 @@ pub fn configureFontAndScreen() anyerror!void {
 }
 
 pub fn loadConfiguration() anyerror!void {
+    config.font.size = 20;
+    config.font.characterSpacing = 0;
+    config.font.lineSpacing = 0;
+
     config.style.background = rl.Color.dark_gray;
     config.style.characterHighlight = rl.Color.white;
     config.style.headerBackground = rl.Color.white;
@@ -442,103 +466,129 @@ pub fn loadConfiguration() anyerror!void {
     const parsed = try std.json.parseFromSlice(ConfigDTO, gpa.allocator(), data, .{});
     defer parsed.deinit();
 
-    if (parsed.value.style) |style| {
-        if (style.background != null) {
+    if (parsed.value.font) |configFont| {
+        if (configFont.size != null) {
+            config.font.size = std.math.clamp(
+                configFont.size.?,
+                FONT_SIZE_MIN,
+                FONT_SIZE_MAX,
+            );
+        }
+
+        if (configFont.characterSpacing != null) {
+            config.font.characterSpacing = std.math.clamp(
+                configFont.characterSpacing.?,
+                FONT_CHARACTER_SPACING_MIN,
+                FONT_CHARACTER_SPACING_MAX,
+            );
+        }
+
+        if (configFont.lineSpacing != null) {
+            config.font.lineSpacing = std.math.clamp(
+                configFont.lineSpacing.?,
+                FONT_LINE_SPACING_MIN,
+                FONT_LINE_SPACING_MAX,
+            );
+        }
+    }
+
+    if (parsed.value.style) |configStyle| {
+        if (configStyle.background != null) {
             config.style.background = rl.Color.init(
-                style.background.?[0],
-                style.background.?[1],
-                style.background.?[2],
-                style.background.?[3],
+                configStyle.background.?[0],
+                configStyle.background.?[1],
+                configStyle.background.?[2],
+                configStyle.background.?[3],
             );
         }
 
-        if (style.characterHighlight != null) {
+        if (configStyle.characterHighlight != null) {
             config.style.characterHighlight = rl.Color.init(
-                style.characterHighlight.?[0],
-                style.characterHighlight.?[1],
-                style.characterHighlight.?[2],
-                style.characterHighlight.?[3],
+                configStyle.characterHighlight.?[0],
+                configStyle.characterHighlight.?[1],
+                configStyle.characterHighlight.?[2],
+                configStyle.characterHighlight.?[3],
             );
         }
 
-        if (style.headerBackground != null) {
+        if (configStyle.headerBackground != null) {
             config.style.headerBackground = rl.Color.init(
-                style.headerBackground.?[0],
-                style.headerBackground.?[1],
-                style.headerBackground.?[2],
-                style.headerBackground.?[3],
+                configStyle.headerBackground.?[0],
+                configStyle.headerBackground.?[1],
+                configStyle.headerBackground.?[2],
+                configStyle.headerBackground.?[3],
             );
         }
 
-        if (style.headerText != null) {
+        if (configStyle.headerText != null) {
             config.style.headerText = rl.Color.init(
-                style.headerText.?[0],
-                style.headerText.?[1],
-                style.headerText.?[2],
-                style.headerText.?[3],
+                configStyle.headerText.?[0],
+                configStyle.headerText.?[1],
+                configStyle.headerText.?[2],
+                configStyle.headerText.?[3],
             );
         }
 
-        if (style.lineHighlight != null) {
+        if (configStyle.lineHighlight != null) {
             config.style.lineHighlight = rl.Color.init(
-                style.lineHighlight.?[0],
-                style.lineHighlight.?[1],
-                style.lineHighlight.?[2],
-                style.lineHighlight.?[3],
+                configStyle.lineHighlight.?[0],
+                configStyle.lineHighlight.?[1],
+                configStyle.lineHighlight.?[2],
+                configStyle.lineHighlight.?[3],
             );
         }
 
-        if (style.scrollbarBackground != null) {
+        if (configStyle.scrollbarBackground != null) {
             config.style.scrollbarBackground = rl.Color.init(
-                style.scrollbarBackground.?[0],
-                style.scrollbarBackground.?[1],
-                style.scrollbarBackground.?[2],
-                style.scrollbarBackground.?[3],
+                configStyle.scrollbarBackground.?[0],
+                configStyle.scrollbarBackground.?[1],
+                configStyle.scrollbarBackground.?[2],
+                configStyle.scrollbarBackground.?[3],
             );
         }
 
-        if (style.scrollbarForeground != null) {
+        if (configStyle.scrollbarForeground != null) {
             config.style.scrollbarForeground = rl.Color.init(
-                style.scrollbarForeground.?[0],
-                style.scrollbarForeground.?[1],
-                style.scrollbarForeground.?[2],
-                style.scrollbarForeground.?[3],
+                configStyle.scrollbarForeground.?[0],
+                configStyle.scrollbarForeground.?[1],
+                configStyle.scrollbarForeground.?[2],
+                configStyle.scrollbarForeground.?[3],
             );
         }
 
-        if (style.statusbarBackground != null) {
+        if (configStyle.statusbarBackground != null) {
             config.style.statusbarBackground = rl.Color.init(
-                style.statusbarBackground.?[0],
-                style.statusbarBackground.?[1],
-                style.statusbarBackground.?[2],
-                style.statusbarBackground.?[3],
+                configStyle.statusbarBackground.?[0],
+                configStyle.statusbarBackground.?[1],
+                configStyle.statusbarBackground.?[2],
+                configStyle.statusbarBackground.?[3],
             );
         }
 
-        if (style.statusbarText != null) {
+        if (configStyle.statusbarText != null) {
             config.style.statusbarText = rl.Color.init(
-                style.statusbarText.?[0],
-                style.statusbarText.?[1],
-                style.statusbarText.?[2],
-                style.statusbarText.?[3],
+                configStyle.statusbarText.?[0],
+                configStyle.statusbarText.?[1],
+                configStyle.statusbarText.?[2],
+                configStyle.statusbarText.?[3],
             );
         }
 
-        if (style.text != null) {
+        if (configStyle.text != null) {
             config.style.text = rl.Color.init(
-                style.text.?[0],
-                style.text.?[1],
-                style.text.?[2],
-                style.text.?[3],
+                configStyle.text.?[0],
+                configStyle.text.?[1],
+                configStyle.text.?[2],
+                configStyle.text.?[3],
             );
         }
 
-        if (style.textHighlighted != null) {
+        if (configStyle.textHighlighted != null) {
             config.style.textHighlighted = rl.Color.init(
-                style.textHighlighted.?[0],
-                style.textHighlighted.?[1],
-                style.textHighlighted.?[2],
-                style.textHighlighted.?[3],
+                configStyle.textHighlighted.?[0],
+                configStyle.textHighlighted.?[1],
+                configStyle.textHighlighted.?[2],
+                configStyle.textHighlighted.?[3],
             );
         }
     }
@@ -716,11 +766,11 @@ pub fn processEditorShortcuts() anyerror!void {
 
     if (rl.isKeyDown(.left_control)) {
         if (rl.isKeyPressed(.equal)) {
-            fontSize = @min(fontSize + 1, FONT_SIZE_MAX);
+            config.font.size = @min(config.font.size + 1, FONT_SIZE_MAX);
 
             try configureFontAndScreen();
         } else if (rl.isKeyPressed(.minus)) {
-            fontSize = @max(FONT_SIZE_MIN, fontSize - 1);
+            config.font.size = @max(FONT_SIZE_MIN, config.font.size - 1);
 
             try configureFontAndScreen();
         }
@@ -732,12 +782,12 @@ pub fn processEditorMouse() anyerror!void {
 
     if (wheel != 0.0) {
         if (rl.isKeyDown(.left_control)) {
-            const amount: u31 = @as(u31, @intFromFloat(@abs(wheel)));
+            const amount: u8 = @as(u8, @intFromFloat(@abs(wheel)));
 
             if (wheel < 0) {
-                fontSize = @max(FONT_SIZE_MIN, fontSize - amount);
+                config.font.size = @max(FONT_SIZE_MIN, config.font.size - amount);
             } else {
-                fontSize = @min(fontSize + amount, FONT_SIZE_MAX);
+                config.font.size = @min(config.font.size + amount, FONT_SIZE_MAX);
             }
 
             try configureFontAndScreen();
@@ -949,7 +999,7 @@ pub fn drawCommandFrame() anyerror!void {
     try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "Stardust", .width = SCREEN_COLUMNS });
     try lineBuffer.append(0);
 
-    drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, LINE_SPACING_HALF, config.style.headerText);
+    drawTextCustom(@ptrCast(lineBuffer.items), fontSpacingHalf, lineSpacingHalf, config.style.headerText);
 
     // Draw status bar
     rl.drawRectangle(0, screenHeight - lineHeight, screenWidth, lineHeight, config.style.statusbarBackground);
@@ -960,7 +1010,7 @@ pub fn drawCommandFrame() anyerror!void {
         try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "C O M M A N D S", .width = SCREEN_COLUMNS });
         try lineBuffer.append(0);
 
-        drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, 2 * lineHeight + LINE_SPACING_HALF, config.style.text);
+        drawTextCustom(@ptrCast(lineBuffer.items), fontSpacingHalf, 2 * lineHeight + lineSpacingHalf, config.style.text);
 
         const menuItems: [9][]const u8 = .{
             "o     Open file             ",
@@ -980,7 +1030,7 @@ pub fn drawCommandFrame() anyerror!void {
             try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = menuItem, .width = SCREEN_COLUMNS });
             try lineBuffer.append(0);
 
-            drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, (4 + @as(i32, @intCast(menuIndex))) * lineHeight + LINE_SPACING_HALF, config.style.text);
+            drawTextCustom(@ptrCast(lineBuffer.items), fontSpacingHalf, (4 + @as(i32, @intCast(menuIndex))) * lineHeight + lineSpacingHalf, config.style.text);
         }
     }
 
@@ -989,14 +1039,14 @@ pub fn drawCommandFrame() anyerror!void {
     try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "By Wagner \"SultansOfCode\" Barongello", .width = SCREEN_COLUMNS });
     try lineBuffer.append(0);
 
-    drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, (SCREEN_LINES - 2) * lineHeight + LINE_SPACING_HALF, config.style.text);
+    drawTextCustom(@ptrCast(lineBuffer.items), fontSpacingHalf, (SCREEN_LINES - 2) * lineHeight + lineSpacingHalf, config.style.text);
 
     lineBuffer.clearRetainingCapacity();
 
     try lineBuffer.writer().print("{[value]s: ^[width]}", .{ .value = "Version 0.1b", .width = SCREEN_COLUMNS });
     try lineBuffer.append(0);
 
-    drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, (SCREEN_LINES - 1) * lineHeight + LINE_SPACING_HALF, config.style.text);
+    drawTextCustom(@ptrCast(lineBuffer.items), fontSpacingHalf, (SCREEN_LINES - 1) * lineHeight + lineSpacingHalf, config.style.text);
 
     // Handle status bar
     lineBuffer.clearRetainingCapacity();
@@ -1012,9 +1062,9 @@ pub fn drawCommandFrame() anyerror!void {
 
     try lineBuffer.append(0);
 
-    const inputY: u31 = screenHeight - lineHeight + LINE_SPACING_HALF;
+    const inputY: u31 = screenHeight - lineHeight + lineSpacingHalf;
 
-    drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, inputY, config.style.statusbarText);
+    drawTextCustom(@ptrCast(lineBuffer.items), fontSpacingHalf, inputY, config.style.statusbarText);
 
     // Handle input
     const inputX: u31 = (commandHandler.textSize + commandHandler.buffer.index) * characterWidth;
@@ -1304,7 +1354,7 @@ pub fn drawEditFrame() anyerror!void {
     // Draw top bar
     rl.drawRectangle(0, 0, screenWidth, lineHeight, config.style.headerBackground);
 
-    drawTextCustom(@ptrCast(headerBuffer.items), FONT_SPACING_HALF, LINE_SPACING_HALF, config.style.headerText);
+    drawTextCustom(@ptrCast(headerBuffer.items), fontSpacingHalf, lineSpacingHalf, config.style.headerText);
 
     // Draw status bar
     rl.drawRectangle(0, screenHeight - lineHeight, screenWidth, lineHeight, config.style.statusbarBackground);
@@ -1326,7 +1376,7 @@ pub fn drawEditFrame() anyerror!void {
     try lineBuffer.writer().print("{s}", .{if (editMode == .Character) "Character" else "Hexadecimal"});
     try lineBuffer.append(0);
 
-    drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, screenHeight - lineHeight + LINE_SPACING_HALF, config.style.statusbarText);
+    drawTextCustom(@ptrCast(lineBuffer.items), fontSpacingHalf, screenHeight - lineHeight + lineSpacingHalf, config.style.statusbarText);
 
     // Draw selected highlight
     rl.drawRectangle(0, (editLine - viewTopLine + 1) * lineHeight, screenWidth - characterWidth, lineHeight, config.style.lineHighlight);
@@ -1386,7 +1436,7 @@ pub fn drawEditFrame() anyerror!void {
 
         try lineBuffer.append(0);
 
-        drawTextCustom(@ptrCast(lineBuffer.items), FONT_SPACING_HALF, @as(u31, @intCast(i + 1)) * lineHeight + LINE_SPACING_HALF, if (viewTopLine + @as(u31, @intCast(i)) == editLine) config.style.textHighlighted else config.style.text);
+        drawTextCustom(@ptrCast(lineBuffer.items), fontSpacingHalf, @as(u31, @intCast(i + 1)) * lineHeight + lineSpacingHalf, if (viewTopLine + @as(u31, @intCast(i)) == editLine) config.style.textHighlighted else config.style.text);
     }
 }
 
