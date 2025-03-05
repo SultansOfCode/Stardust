@@ -838,7 +838,7 @@ pub fn processCommandKeyboard() anyerror!void {
             }
 
             commandHandler.buffer.count = @truncate(rom.filename.len);
-            commandHandler.buffer.index = @truncate(rom.filename.len);
+            commandHandler.buffer.setIndex(@truncate(rom.filename.len));
         }
 
         return;
