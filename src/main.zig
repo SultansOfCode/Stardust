@@ -922,15 +922,23 @@ pub fn processCommandKeyboard() anyerror!void {
             editLine = 0;
             editColumn = 0;
             editNibble = 0;
+
+            editorMode = .Edit;
         } else if (commandHandler.mode == .Write and rom.size > 0) {
             const romFile: std.fs.File = try std.fs.cwd().createFile(rom.filename, .{});
             defer romFile.close();
 
             try romFile.writeAll(rom.data);
+
+            editorMode = .Edit;
         } else if (commandHandler.mode == .Search and rom.size > 0) {
             try searchData(.Forward, false);
+
+            editorMode = .Edit;
         } else if (commandHandler.mode == .RelativeSearch and rom.size > 0) {
             try relativeSearchData(.Forward, false);
+
+            editorMode = .Edit;
         } else if (commandHandler.mode == .GotoAddress and rom.size > 0) {
             const newAddress: u32 = try std.fmt.parseInt(u32, commandHandler.buffer.data[0..commandHandler.buffer.count], 16);
             const newLine: u31 = @as(u31, @intCast(@divFloor(newAddress, BYTES_PER_LINE)));
@@ -943,9 +951,9 @@ pub fn processCommandKeyboard() anyerror!void {
             }
 
             editColumn = newColumn;
-        }
 
-        editorMode = .Edit;
+            editorMode = .Edit;
+        }
 
         return;
     }
