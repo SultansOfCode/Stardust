@@ -832,6 +832,13 @@ pub fn processCommandKeyboard() anyerror!void {
 
         if (commandHandler.mode == .GotoAddress) {
             commandHandler.buffer.maxLength = 8;
+        } else if (commandHandler.mode == .Open or commandHandler.mode == .Write) {
+            for (0..rom.filename.len) |i| {
+                commandHandler.buffer.data[i] = rom.filename[i];
+            }
+
+            commandHandler.buffer.count = @truncate(rom.filename.len);
+            commandHandler.buffer.index = @truncate(rom.filename.len);
         }
 
         return;
@@ -923,10 +930,18 @@ pub fn processCommandKeyboard() anyerror!void {
 
             editorMode = .Edit;
         } else if (commandHandler.mode == .Write and rom.size > 0) {
-            const romFile: std.fs.File = try std.fs.cwd().createFile(rom.filename, .{});
+            const romFile: std.fs.File = try std.fs.cwd().createFile(commandHandler.buffer.data[0..commandHandler.buffer.count], .{});
             defer romFile.close();
 
             try romFile.writeAll(rom.data);
+
+            const romFilename: []u8 = try gpa.allocator().alloc(u8, commandHandler.buffer.count);
+
+            @memcpy(romFilename, commandHandler.buffer.data[0..commandHandler.buffer.count]);
+
+            gpa.allocator().free(rom.filename);
+
+            rom.filename = romFilename;
 
             editorMode = .Edit;
         } else if (commandHandler.mode == .Search and rom.size > 0) {
