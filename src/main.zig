@@ -1597,28 +1597,7 @@ pub fn drawEditFrame() anyerror!void {
     }
 }
 
-pub fn processError() anyerror!void {
-    if (errorBuffer.items.len == 0) {
-        return;
-    }
-
-    errorElapsed += rl.getFrameTime();
-
-    if (errorElapsed >= config.errorDuration) {
-        errorBuffer.clearAndFree();
-
-        errorElapsed = 0.0;
-    }
-}
-
-pub fn showError(message: []const u8) anyerror!void {
-    try errorBuffer.writer().print("ERROR: {s}", .{message});
-    try errorBuffer.append(0);
-
-    errorElapsed = 0;
-}
-
-pub fn drawError() anyerror!void {
+pub fn processAndDrawError() anyerror!void {
     if (errorBuffer.items.len == 0) {
         return;
     }
@@ -1626,6 +1605,23 @@ pub fn drawError() anyerror!void {
     rl.drawRectangle(0, 0, screenWidth, lineHeight, config.style.errorBackground);
 
     drawTextCustom(@ptrCast(errorBuffer.items), fontSpacingHalf, lineSpacingHalf, config.style.errorText);
+
+    errorElapsed += rl.getFrameTime();
+
+    if (errorElapsed < config.errorDuration) {
+        return;
+    }
+
+    errorBuffer.clearAndFree();
+
+    errorElapsed = 0.0;
+}
+
+pub fn showError(message: []const u8) anyerror!void {
+    try errorBuffer.writer().print("ERROR: {s}", .{message});
+    try errorBuffer.append(0);
+
+    errorElapsed = 0;
 }
 
 pub fn main() anyerror!u8 {
@@ -1674,8 +1670,7 @@ pub fn main() anyerror!u8 {
             try drawEditFrame();
         }
 
-        try processError();
-        try drawError();
+        try processAndDrawError();
     }
 
     return 0;
