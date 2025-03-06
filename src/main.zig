@@ -75,6 +75,8 @@ const Config: type = struct {
 
 var config: Config = Config{};
 
+const ICON_DATA = @embedFile("embed/icon.png");
+
 const CONFIG_FILE: *const [11:0]u8 = "config.json";
 
 const FONT_DATA = @embedFile("embed/firacode.ttf");
@@ -449,8 +451,8 @@ pub fn configureFontAndScreen() anyerror!void {
 
     screenWidth = SCREEN_COLUMNS * fontWidth + (SCREEN_COLUMNS - 1) * fontSpacing;
     screenHeight = (SCREEN_LINES + 2) * fontHeight + (SCREEN_LINES + 2) * lineSpacing;
-    // Here it does not take off 1 because there are half line spacing      ^
-    // on top and half at bottom -------------------------------------------´
+    // Here it does not take off 1 because there are ^
+    // half line spacing on top and half at bottom --´
 
     characterWidth = @as(u31, @intFromFloat(@round(fontMeasurements.x))) + fontSpacing;
     lineHeight = @as(u31, @intFromFloat(@round(fontMeasurements.y))) + lineSpacing;
@@ -512,201 +514,203 @@ pub fn loadConfiguration() anyerror!void {
         configExists = if (configFileAccessError == error.FileNotFound) false else true;
     };
 
-    if (!configExists) {
-        return;
-    }
+    loadConfigFromFile: {
+        if (!configExists) {
+            break :loadConfigFromFile;
+        }
 
-    const configFile: std.fs.File = try std.fs.cwd().openFile(CONFIG_FILE, .{});
-    defer configFile.close();
+        const configFile: std.fs.File = try std.fs.cwd().openFile(CONFIG_FILE, .{});
+        defer configFile.close();
 
-    const size: u64 = try configFile.getEndPos();
+        const size: u64 = try configFile.getEndPos();
 
-    if (size == 0) {
-        return;
-    }
+        if (size == 0) {
+            break :loadConfigFromFile;
+        }
 
-    const data: []u8 = try gpa.allocator().alloc(u8, size);
+        const data: []u8 = try gpa.allocator().alloc(u8, size);
 
-    _ = try configFile.readAll(data);
+        _ = try configFile.readAll(data);
 
-    const parsed = try std.json.parseFromSlice(ConfigDTO, gpa.allocator(), data, .{});
-    defer parsed.deinit();
+        const parsed = try std.json.parseFromSlice(ConfigDTO, gpa.allocator(), data, .{});
+        defer parsed.deinit();
 
-    if (parsed.value.font) |configFont| {
-        if (configFont.size != null) {
-            config.font.size = std.math.clamp(
-                configFont.size.?,
-                FONT_SIZE_MIN,
-                FONT_SIZE_MAX,
+        if (parsed.value.font) |configFont| {
+            if (configFont.size != null) {
+                config.font.size = std.math.clamp(
+                    configFont.size.?,
+                    FONT_SIZE_MIN,
+                    FONT_SIZE_MAX,
+                );
+            }
+
+            if (configFont.characterSpacing != null) {
+                config.font.characterSpacing = std.math.clamp(
+                    configFont.characterSpacing.?,
+                    FONT_CHARACTER_SPACING_MIN,
+                    FONT_CHARACTER_SPACING_MAX,
+                );
+            }
+
+            if (configFont.lineSpacing != null) {
+                config.font.lineSpacing = std.math.clamp(
+                    configFont.lineSpacing.?,
+                    FONT_LINE_SPACING_MIN,
+                    FONT_LINE_SPACING_MAX,
+                );
+            }
+        }
+
+        if (parsed.value.style) |configStyle| {
+            if (configStyle.background) |color| {
+                config.style.background = rl.Color.init(
+                    color.r orelse 0,
+                    color.g orelse 0,
+                    color.b orelse 0,
+                    color.a orelse 0,
+                );
+            }
+
+            if (configStyle.characterHighlight) |color| {
+                config.style.characterHighlight = rl.Color.init(
+                    color.r orelse 0,
+                    color.g orelse 0,
+                    color.b orelse 0,
+                    color.a orelse 0,
+                );
+            }
+
+            if (configStyle.errorBackground) |color| {
+                config.style.errorBackground = rl.Color.init(
+                    color.r orelse 0,
+                    color.g orelse 0,
+                    color.b orelse 0,
+                    color.a orelse 0,
+                );
+            }
+
+            if (configStyle.errorText) |color| {
+                config.style.errorText = rl.Color.init(
+                    color.r orelse 0,
+                    color.g orelse 0,
+                    color.b orelse 0,
+                    color.a orelse 0,
+                );
+            }
+
+            if (configStyle.headerBackground) |color| {
+                config.style.headerBackground = rl.Color.init(
+                    color.r orelse 0,
+                    color.g orelse 0,
+                    color.b orelse 0,
+                    color.a orelse 0,
+                );
+            }
+
+            if (configStyle.headerText) |color| {
+                config.style.headerText = rl.Color.init(
+                    color.r orelse 0,
+                    color.g orelse 0,
+                    color.b orelse 0,
+                    color.a orelse 0,
+                );
+            }
+
+            if (configStyle.lineHighlight) |color| {
+                config.style.lineHighlight = rl.Color.init(
+                    color.r orelse 0,
+                    color.g orelse 0,
+                    color.b orelse 0,
+                    color.a orelse 0,
+                );
+            }
+
+            if (configStyle.scrollbarBackground) |color| {
+                config.style.scrollbarBackground = rl.Color.init(
+                    color.r orelse 0,
+                    color.g orelse 0,
+                    color.b orelse 0,
+                    color.a orelse 0,
+                );
+            }
+
+            if (configStyle.scrollbarForeground) |color| {
+                config.style.scrollbarForeground = rl.Color.init(
+                    color.r orelse 0,
+                    color.g orelse 0,
+                    color.b orelse 0,
+                    color.a orelse 0,
+                );
+            }
+
+            if (configStyle.statusbarBackground) |color| {
+                config.style.statusbarBackground = rl.Color.init(
+                    color.r orelse 0,
+                    color.g orelse 0,
+                    color.b orelse 0,
+                    color.a orelse 0,
+                );
+            }
+
+            if (configStyle.statusbarText) |color| {
+                config.style.statusbarText = rl.Color.init(
+                    color.r orelse 0,
+                    color.g orelse 0,
+                    color.b orelse 0,
+                    color.a orelse 0,
+                );
+            }
+
+            if (configStyle.text) |color| {
+                config.style.text = rl.Color.init(
+                    color.r orelse 0,
+                    color.g orelse 0,
+                    color.b orelse 0,
+                    color.a orelse 0,
+                );
+            }
+
+            if (configStyle.textHighlighted) |color| {
+                config.style.textHighlighted = rl.Color.init(
+                    color.r orelse 0,
+                    color.g orelse 0,
+                    color.b orelse 0,
+                    color.a orelse 0,
+                );
+            }
+        }
+
+        if (parsed.value.bytesPerLine) |bytesPerLine| {
+            config.bytesPerLine = std.math.clamp(
+                bytesPerLine,
+                BYTES_PER_LINE_MIN,
+                BYTES_PER_LINE_MAX,
             );
         }
 
-        if (configFont.characterSpacing != null) {
-            config.font.characterSpacing = std.math.clamp(
-                configFont.characterSpacing.?,
-                FONT_CHARACTER_SPACING_MIN,
-                FONT_CHARACTER_SPACING_MAX,
+        if (parsed.value.errorDuration) |errorDuration| {
+            config.errorDuration = std.math.clamp(
+                errorDuration,
+                ERROR_DURATION_MIN,
+                ERROR_DURATION_MAX,
             );
         }
 
-        if (configFont.lineSpacing != null) {
-            config.font.lineSpacing = std.math.clamp(
-                configFont.lineSpacing.?,
-                FONT_LINE_SPACING_MIN,
-                FONT_LINE_SPACING_MAX,
-            );
-        }
-    }
-
-    if (parsed.value.style) |configStyle| {
-        if (configStyle.background) |color| {
-            config.style.background = rl.Color.init(
-                color.r orelse 0,
-                color.g orelse 0,
-                color.b orelse 0,
-                color.a orelse 0,
+        if (parsed.value.screenLines) |screenLines| {
+            config.screenLines = std.math.clamp(
+                screenLines,
+                SCREEN_LINES_MIN,
+                SCREEN_LINES_MAX,
             );
         }
 
-        if (configStyle.characterHighlight) |color| {
-            config.style.characterHighlight = rl.Color.init(
-                color.r orelse 0,
-                color.g orelse 0,
-                color.b orelse 0,
-                color.a orelse 0,
+        if (parsed.value.scrollbarScale) |scrollbarScale| {
+            config.scrollbarScale = std.math.clamp(
+                scrollbarScale,
+                SCROLLBAR_SCALE_MIN,
+                SCROLLBAR_SCALE_MAX,
             );
         }
-
-        if (configStyle.errorBackground) |color| {
-            config.style.errorBackground = rl.Color.init(
-                color.r orelse 0,
-                color.g orelse 0,
-                color.b orelse 0,
-                color.a orelse 0,
-            );
-        }
-
-        if (configStyle.errorText) |color| {
-            config.style.errorText = rl.Color.init(
-                color.r orelse 0,
-                color.g orelse 0,
-                color.b orelse 0,
-                color.a orelse 0,
-            );
-        }
-
-        if (configStyle.headerBackground) |color| {
-            config.style.headerBackground = rl.Color.init(
-                color.r orelse 0,
-                color.g orelse 0,
-                color.b orelse 0,
-                color.a orelse 0,
-            );
-        }
-
-        if (configStyle.headerText) |color| {
-            config.style.headerText = rl.Color.init(
-                color.r orelse 0,
-                color.g orelse 0,
-                color.b orelse 0,
-                color.a orelse 0,
-            );
-        }
-
-        if (configStyle.lineHighlight) |color| {
-            config.style.lineHighlight = rl.Color.init(
-                color.r orelse 0,
-                color.g orelse 0,
-                color.b orelse 0,
-                color.a orelse 0,
-            );
-        }
-
-        if (configStyle.scrollbarBackground) |color| {
-            config.style.scrollbarBackground = rl.Color.init(
-                color.r orelse 0,
-                color.g orelse 0,
-                color.b orelse 0,
-                color.a orelse 0,
-            );
-        }
-
-        if (configStyle.scrollbarForeground) |color| {
-            config.style.scrollbarForeground = rl.Color.init(
-                color.r orelse 0,
-                color.g orelse 0,
-                color.b orelse 0,
-                color.a orelse 0,
-            );
-        }
-
-        if (configStyle.statusbarBackground) |color| {
-            config.style.statusbarBackground = rl.Color.init(
-                color.r orelse 0,
-                color.g orelse 0,
-                color.b orelse 0,
-                color.a orelse 0,
-            );
-        }
-
-        if (configStyle.statusbarText) |color| {
-            config.style.statusbarText = rl.Color.init(
-                color.r orelse 0,
-                color.g orelse 0,
-                color.b orelse 0,
-                color.a orelse 0,
-            );
-        }
-
-        if (configStyle.text) |color| {
-            config.style.text = rl.Color.init(
-                color.r orelse 0,
-                color.g orelse 0,
-                color.b orelse 0,
-                color.a orelse 0,
-            );
-        }
-
-        if (configStyle.textHighlighted) |color| {
-            config.style.textHighlighted = rl.Color.init(
-                color.r orelse 0,
-                color.g orelse 0,
-                color.b orelse 0,
-                color.a orelse 0,
-            );
-        }
-    }
-
-    if (parsed.value.bytesPerLine) |bytesPerLine| {
-        config.bytesPerLine = std.math.clamp(
-            bytesPerLine,
-            BYTES_PER_LINE_MIN,
-            BYTES_PER_LINE_MAX,
-        );
-    }
-
-    if (parsed.value.errorDuration) |errorDuration| {
-        config.errorDuration = std.math.clamp(
-            errorDuration,
-            ERROR_DURATION_MIN,
-            ERROR_DURATION_MAX,
-        );
-    }
-
-    if (parsed.value.screenLines) |screenLines| {
-        config.screenLines = std.math.clamp(
-            screenLines,
-            SCREEN_LINES_MIN,
-            SCREEN_LINES_MAX,
-        );
-    }
-
-    if (parsed.value.scrollbarScale) |scrollbarScale| {
-        config.scrollbarScale = std.math.clamp(
-            scrollbarScale,
-            SCROLLBAR_SCALE_MIN,
-            SCROLLBAR_SCALE_MAX,
-        );
     }
 
     try configureFontAndScreen();
@@ -944,10 +948,30 @@ pub fn processCommandKeyboard() anyerror!void {
     if (commandHandler.mode == .Menu) {
         if (rl.isKeyPressed(.q)) {
             shouldClose = true;
+
+            commandHandler.reset();
         } else if (rl.isKeyPressed(.o)) {
             commandHandler.mode = .Open;
+
+            commandHandler.reset();
+
+            for (0..rom.filename.len) |i| {
+                commandHandler.buffer.data[i] = rom.filename[i];
+            }
+
+            commandHandler.buffer.count = @truncate(rom.filename.len);
+            commandHandler.buffer.setIndex(@truncate(rom.filename.len));
         } else if (rl.isKeyPressed(.w)) {
             commandHandler.mode = .Write;
+
+            commandHandler.reset();
+
+            for (0..rom.filename.len) |i| {
+                commandHandler.buffer.data[i] = rom.filename[i];
+            }
+
+            commandHandler.buffer.count = @truncate(rom.filename.len);
+            commandHandler.buffer.setIndex(@truncate(rom.filename.len));
         } else if (rl.isKeyPressed(.p)) {
             if (rom.size == 0) {
                 return;
@@ -963,27 +987,26 @@ pub fn processCommandKeyboard() anyerror!void {
             rom = try ROM.init(filename);
 
             editorMode = .Edit;
+
+            commandHandler.reset();
         } else if (rl.isKeyPressed(.s)) {
             commandHandler.mode = .Search;
+
+            commandHandler.reset();
         } else if (rl.isKeyPressed(.r)) {
             commandHandler.mode = .RelativeSearch;
+
+            commandHandler.reset();
         } else if (rl.isKeyPressed(.g)) {
             commandHandler.mode = .GotoAddress;
+
+            commandHandler.reset();
+
+            commandHandler.buffer.maxLength = 8;
         } else if (rl.isKeyPressed(.t)) {
             try loadConfiguration();
-        }
 
-        commandHandler.reset();
-
-        if (commandHandler.mode == .GotoAddress) {
-            commandHandler.buffer.maxLength = 8;
-        } else if (commandHandler.mode == .Open or commandHandler.mode == .Write) {
-            for (0..rom.filename.len) |i| {
-                commandHandler.buffer.data[i] = rom.filename[i];
-            }
-
-            commandHandler.buffer.count = @truncate(rom.filename.len);
-            commandHandler.buffer.setIndex(@truncate(rom.filename.len));
+            commandHandler.reset();
         }
 
         return;
@@ -1653,7 +1676,7 @@ pub fn main() anyerror!u8 {
     rl.initWindow(814, 640, "Stardust");
     defer rl.closeWindow();
 
-    const icon: rl.Image = try rl.loadImage("resources/icon.png");
+    const icon: rl.Image = try rl.loadImageFromMemory(".png", ICON_DATA);
     defer rl.unloadImage(icon);
 
     rl.setWindowIcon(icon);
