@@ -17,6 +17,18 @@
       "b": 255,
       "a": 255
     },
+    "errorBackground": {
+      "r": 255,
+      "g": 0,
+      "b": 0,
+      "a": 255
+    },
+    "errorText": {
+      "r": 255,
+      "g": 255,
+      "b": 255,
+      "a": 255
+    },
     "headerBackground": {
       "r": 255,
       "g": 255,
@@ -73,6 +85,7 @@
     }
   },
   "bytesPerLine": 16,
+  "errorDuration": 2,
   "screenLines": 32,
   "scrollbarScale": 2.1
 }

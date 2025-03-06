@@ -26,6 +26,8 @@ const ColorDTO: type = struct {
 const StyleDTO: type = struct {
     background: ?ColorDTO = null,
     characterHighlight: ?ColorDTO = null,
+    errorBackground: ?ColorDTO = null,
+    errorText: ?ColorDTO = null,
     headerBackground: ?ColorDTO = null,
     headerText: ?ColorDTO = null,
     lineHighlight: ?ColorDTO = null,
@@ -40,6 +42,8 @@ const StyleDTO: type = struct {
 const StyleConfig: type = struct {
     background: rl.Color = rl.Color.dark_gray,
     characterHighlight: rl.Color = rl.Color.white,
+    errorBackground: rl.Color = rl.Color.red,
+    errorText: rl.Color = rl.Color.white,
     headerBackground: rl.Color = rl.Color.white,
     headerText: rl.Color = rl.Color.black,
     lineHighlight: rl.Color = rl.Color.light_gray,
@@ -55,6 +59,7 @@ const ConfigDTO: type = struct {
     font: ?FontDTO = null,
     style: ?StyleDTO = null,
     bytesPerLine: ?u8 = null,
+    errorDuration: ?f32 = null,
     screenLines: ?u8 = null,
     scrollbarScale: ?f32 = null,
 };
@@ -63,6 +68,7 @@ const Config: type = struct {
     font: FontConfig = FontConfig{},
     style: StyleConfig = StyleConfig{},
     bytesPerLine: u8 = 16,
+    errorDuration: f32 = 2,
     screenLines: u8 = 32,
     scrollbarScale: f32 = 2.1,
 };
@@ -81,6 +87,9 @@ const FONT_LINE_SPACING_MAX: f32 = 16;
 
 const BYTES_PER_LINE_MIN: u8 = 1;
 const BYTES_PER_LINE_MAX: u8 = 32;
+
+const ERROR_DURATION_MIN: f32 = 0.1;
+const ERROR_DURATION_MAX: f32 = 5;
 
 const SCREEN_LINES_MIN: u8 = 1;
 const SCREEN_LINES_MAX: u8 = 64;
@@ -132,9 +141,11 @@ var editColumn: u8 = 0;
 var editNibble: u1 = 0;
 var editMode: EditMode = .Character;
 
+var errorBuffer: std.ArrayList(u8) = undefined;
 var headerBuffer: std.ArrayList(u8) = undefined;
 var lineBuffer: std.ArrayList(u8) = undefined;
 
+var errorElapsed: f32 = 0;
 var shouldClose: bool = false;
 
 const ROMError: type = error{
@@ -477,6 +488,8 @@ pub fn loadConfiguration() anyerror!void {
 
     config.style.background = rl.Color.dark_gray;
     config.style.characterHighlight = rl.Color.white;
+    config.style.errorBackground = rl.Color.red;
+    config.style.errorText = rl.Color.white;
     config.style.headerBackground = rl.Color.white;
     config.style.headerText = rl.Color.black;
     config.style.lineHighlight = rl.Color.light_gray;
@@ -488,6 +501,7 @@ pub fn loadConfiguration() anyerror!void {
     config.style.textHighlighted = rl.Color.black;
 
     config.bytesPerLine = 16;
+    config.errorDuration = 2;
     config.screenLines = 32;
     config.scrollbarScale = 2.1;
 
@@ -555,6 +569,24 @@ pub fn loadConfiguration() anyerror!void {
 
         if (configStyle.characterHighlight) |color| {
             config.style.characterHighlight = rl.Color.init(
+                color.r orelse 0,
+                color.g orelse 0,
+                color.b orelse 0,
+                color.a orelse 0,
+            );
+        }
+
+        if (configStyle.errorBackground) |color| {
+            config.style.errorBackground = rl.Color.init(
+                color.r orelse 0,
+                color.g orelse 0,
+                color.b orelse 0,
+                color.a orelse 0,
+            );
+        }
+
+        if (configStyle.errorText) |color| {
+            config.style.errorText = rl.Color.init(
                 color.r orelse 0,
                 color.g orelse 0,
                 color.b orelse 0,
@@ -652,6 +684,14 @@ pub fn loadConfiguration() anyerror!void {
         );
     }
 
+    if (parsed.value.errorDuration) |errorDuration| {
+        config.errorDuration = std.math.clamp(
+            errorDuration,
+            ERROR_DURATION_MIN,
+            ERROR_DURATION_MAX,
+        );
+    }
+
     if (parsed.value.screenLines) |screenLines| {
         config.screenLines = std.math.clamp(
             screenLines,
@@ -717,6 +757,8 @@ pub fn searchData(direction: SearchDirection, retry: bool) anyerror!void {
     if (foundAtIndex == null) {
         if (!retry) {
             try searchData(direction, true);
+        } else {
+            try showError("Not found");
         }
 
         return;
@@ -820,6 +862,8 @@ pub fn relativeSearchData(direction: SearchDirection, retry: bool) anyerror!void
     if (foundAtIndex == null) {
         if (!retry) {
             try relativeSearchData(direction, true);
+        } else {
+            try showError("Not found");
         }
 
         return;
@@ -1553,8 +1597,42 @@ pub fn drawEditFrame() anyerror!void {
     }
 }
 
+pub fn processError() anyerror!void {
+    if (errorBuffer.items.len == 0) {
+        return;
+    }
+
+    errorElapsed += rl.getFrameTime();
+
+    if (errorElapsed >= config.errorDuration) {
+        errorBuffer.clearAndFree();
+
+        errorElapsed = 0.0;
+    }
+}
+
+pub fn showError(message: []const u8) anyerror!void {
+    try errorBuffer.writer().print("ERROR: {s}", .{message});
+    try errorBuffer.append(0);
+
+    errorElapsed = 0;
+}
+
+pub fn drawError() anyerror!void {
+    if (errorBuffer.items.len == 0) {
+        return;
+    }
+
+    rl.drawRectangle(0, 0, screenWidth, lineHeight, config.style.errorBackground);
+
+    drawTextCustom(@ptrCast(errorBuffer.items), fontSpacingHalf, lineSpacingHalf, config.style.errorText);
+}
+
 pub fn main() anyerror!u8 {
     gpa = std.heap.GeneralPurposeAllocator(.{}){};
+
+    errorBuffer = std.ArrayList(u8).init(gpa.allocator());
+    defer errorBuffer.deinit();
 
     headerBuffer = std.ArrayList(u8).init(gpa.allocator());
     defer headerBuffer.deinit();
@@ -1595,6 +1673,9 @@ pub fn main() anyerror!u8 {
 
             try drawEditFrame();
         }
+
+        try processError();
+        try drawError();
     }
 
     return 0;
