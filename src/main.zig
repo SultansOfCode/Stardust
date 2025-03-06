@@ -77,7 +77,7 @@ var config: Config = Config{};
 
 const CONFIG_FILE: *const [11:0]u8 = "config.json";
 
-const FONT_FILE: *const [22:0]u8 = "resources/firacode.ttf";
+const FONT_DATA = @embedFile("embed/firacode.ttf");
 const FONT_SIZE_MIN: u8 = 16;
 const FONT_SIZE_MAX: u8 = 32;
 const FONT_CHARACTER_SPACING_MIN: f32 = 0;
@@ -413,9 +413,8 @@ pub fn configureFontAndScreen() anyerror!void {
     if (font.glyphCount > 0) {
         rl.unloadFont(font);
     }
-    // const x = @embedFile(FONT_FILE);
-    // font = rl.loadFontFromMemory(".ttf", x, config.font.size, null);
-    font = try rl.loadFontEx(FONT_FILE, config.font.size, null);
+
+    font = try rl.loadFontFromMemory(".ttf", FONT_DATA, config.font.size, null);
 
     if (font.glyphCount == 0) {
         return ROMError.EmptyFont;
