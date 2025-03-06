@@ -71,5 +71,8 @@
       "b": 0,
       "a": 255
     }
-  }
+  },
+  "bytesPerLine": 16,
+  "screenLines": 32,
+  "scrollbarScale": 2.1
 }

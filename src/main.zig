@@ -54,11 +54,17 @@ const StyleConfig: type = struct {
 const ConfigDTO: type = struct {
     font: ?FontDTO = null,
     style: ?StyleDTO = null,
+    bytesPerLine: ?u8 = null,
+    screenLines: ?u8 = null,
+    scrollbarScale: ?f32 = null,
 };
 
 const Config: type = struct {
     font: FontConfig = FontConfig{},
     style: StyleConfig = StyleConfig{},
+    bytesPerLine: u8 = 16,
+    screenLines: u8 = 32,
+    scrollbarScale: f32 = 2.1,
 };
 
 var config: Config = Config{};
@@ -73,24 +79,24 @@ const FONT_CHARACTER_SPACING_MAX: f32 = 16;
 const FONT_LINE_SPACING_MIN: f32 = 0;
 const FONT_LINE_SPACING_MAX: f32 = 16;
 
+const BYTES_PER_LINE_MIN: u8 = 1;
+const BYTES_PER_LINE_MAX: u8 = 32;
+
+const SCREEN_LINES_MIN: u8 = 1;
+const SCREEN_LINES_MAX: u8 = 64;
+
+const SCROLLBAR_SCALE_MIN: f32 = 0.1;
+const SCROLLBAR_SCALE_MAX: f32 = 5;
+
 var fontSpacing: u31 = undefined;
 var fontSpacingHalf: u31 = undefined;
 
 var lineSpacing: u31 = undefined;
 var lineSpacingHalf: u31 = undefined;
 
-const BYTES_PER_LINE: u8 = 16;
-const SCREEN_LINES: u31 = 32;
-const SCREEN_COLUMNS: u31 = 8 + 1 + (BYTES_PER_LINE * 2) + (BYTES_PER_LINE - 1) + 1 + BYTES_PER_LINE + 1;
-// Offset             ------^   ^   ^                      ^                      ^   ^                ^
-// Space              ----------´   |                      |                      |   |                |
-// Bytes as hex 00    --------------´                      |                      |   |                |
-// Bytes' spaces      -------------------------------------´                      |   |                |
-// Space              ------------------------------------------------------------´   |                |
-// Bytes as char .    ----------------------------------------------------------------´                |
-// Scrollbar          ---------------------------------------------------------------------------------´
-
-const SCROLLBAR_SCALE: f32 = 2.1;
+var BYTES_PER_LINE: u8 = undefined;
+var SCREEN_LINES: u31 = undefined;
+var SCREEN_COLUMNS: u31 = undefined;
 
 const HEXADECIMAL_CHARACTERS: [22]u8 = .{
     '0', '1', '2', '3', '4', '5', '6', '7',
@@ -418,6 +424,17 @@ pub fn configureFontAndScreen() anyerror!void {
     const fontWidth: u31 = @as(u31, @intFromFloat(@round(fontMeasurements.x)));
     const fontHeight: u31 = @as(u31, @intFromFloat(@round(fontMeasurements.y)));
 
+    BYTES_PER_LINE = config.bytesPerLine;
+    SCREEN_LINES = config.screenLines;
+    SCREEN_COLUMNS = 8 + 1 + (BYTES_PER_LINE * 2) + (BYTES_PER_LINE - 1) + 1 + BYTES_PER_LINE + 1;
+    // Offset  ------^   ^   ^                      ^                      ^   ^                ^
+    // Space   ----------´   |                      |                      |   |                |
+    // Bytes as hex 00 ------´                      |                      |   |                |
+    // Bytes' spaces   -----------------------------´                      |   |                |
+    // Space           ----------------------------------------------------´   |                |
+    // Bytes as char . --------------------------------------------------------´                |
+    // Scrollbar       -------------------------------------------------------------------------´
+
     screenWidth = SCREEN_COLUMNS * fontWidth + (SCREEN_COLUMNS - 1) * fontSpacing;
     screenHeight = (SCREEN_LINES + 2) * fontHeight + (SCREEN_LINES + 2) * lineSpacing;
     // Here it does not take off 1 because there are half line spacing      ^
@@ -425,10 +442,32 @@ pub fn configureFontAndScreen() anyerror!void {
 
     characterWidth = @as(u31, @intFromFloat(@round(fontMeasurements.x))) + fontSpacing;
     lineHeight = @as(u31, @intFromFloat(@round(fontMeasurements.y))) + lineSpacing;
-    scrollbarHeight = @as(u31, @intFromFloat(@as(f32, @floatFromInt(lineHeight)) * SCROLLBAR_SCALE));
+    scrollbarHeight = @as(u31, @intFromFloat(@as(f32, @floatFromInt(lineHeight)) * config.scrollbarScale));
     scrollbarHeightHalf = @divFloor(scrollbarHeight, 2);
 
     rl.setWindowSize(screenWidth, screenHeight);
+
+    const monitor: i32 = rl.getCurrentMonitor();
+    const monitorWidth: i32 = rl.getMonitorWidth(monitor);
+    const monitorHeight: i32 = rl.getMonitorHeight(monitor);
+    const windowX: i32 = @divFloor(monitorWidth - screenWidth, 2);
+    const windowY: i32 = @divFloor(monitorHeight - screenHeight, 2);
+
+    rl.setWindowPosition(windowX, windowY);
+
+    headerBuffer.clearRetainingCapacity();
+
+    try headerBuffer.appendSlice(" Offset  ");
+
+    for (0..BYTES_PER_LINE) |i| {
+        try headerBuffer.writer().print("{X:0>2} ", .{i});
+    }
+
+    for (0..BYTES_PER_LINE) |i| {
+        try headerBuffer.writer().print("{X:1}", .{i % 16});
+    }
+
+    try headerBuffer.append(0);
 }
 
 pub fn loadConfiguration() anyerror!void {
@@ -447,6 +486,10 @@ pub fn loadConfiguration() anyerror!void {
     config.style.statusbarText = rl.Color.black;
     config.style.text = rl.Color.light_gray;
     config.style.textHighlighted = rl.Color.black;
+
+    config.bytesPerLine = 16;
+    config.screenLines = 32;
+    config.scrollbarScale = 2.1;
 
     var configExists: bool = true;
 
@@ -599,6 +642,30 @@ pub fn loadConfiguration() anyerror!void {
                 color.a orelse 0,
             );
         }
+    }
+
+    if (parsed.value.bytesPerLine) |bytesPerLine| {
+        config.bytesPerLine = std.math.clamp(
+            bytesPerLine,
+            BYTES_PER_LINE_MIN,
+            BYTES_PER_LINE_MAX,
+        );
+    }
+
+    if (parsed.value.screenLines) |screenLines| {
+        config.screenLines = std.math.clamp(
+            screenLines,
+            SCREEN_LINES_MIN,
+            SCREEN_LINES_MAX,
+        );
+    }
+
+    if (parsed.value.scrollbarScale) |scrollbarScale| {
+        config.scrollbarScale = std.math.clamp(
+            scrollbarScale,
+            SCROLLBAR_SCALE_MIN,
+            SCROLLBAR_SCALE_MAX,
+        );
     }
 
     try configureFontAndScreen();
@@ -1491,18 +1558,6 @@ pub fn main() anyerror!u8 {
 
     headerBuffer = std.ArrayList(u8).init(gpa.allocator());
     defer headerBuffer.deinit();
-
-    try headerBuffer.appendSlice(" Offset  ");
-
-    for (0..BYTES_PER_LINE) |i| {
-        try headerBuffer.writer().print("{X:0>2} ", .{i});
-    }
-
-    for (0..BYTES_PER_LINE) |i| {
-        try headerBuffer.writer().print("{X:1}", .{i % 16});
-    }
-
-    try headerBuffer.append(0);
 
     lineBuffer = std.ArrayList(u8).init(gpa.allocator());
     defer lineBuffer.deinit();
