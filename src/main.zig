@@ -148,6 +148,8 @@ var lineBuffer: std.ArrayList(u8) = undefined;
 var errorElapsed: f32 = 0;
 var shouldClose: bool = false;
 
+var camera: rl.Camera2D = undefined;
+
 const ROMError: type = error{
     EmptyFile,
     EmptyFont,
@@ -720,6 +722,14 @@ pub fn saveConfiguration() anyerror!void {
     defer configFile.close();
 
     _ = try configFile.writeAll(string.items);
+}
+
+pub fn getCameraMouseX() i32 {
+    return rl.getMouseX() - @as(i32, @intFromFloat(camera.offset.x));
+}
+
+pub fn getCameraMouseY() i32 {
+    return rl.getMouseY() - @as(i32, @intFromFloat(camera.offset.y));
 }
 
 pub fn searchData(direction: SearchDirection, retry: bool) anyerror!void {
@@ -1310,7 +1320,7 @@ pub fn scrollEditBy(amount: u31, direction: ScrollDirection) anyerror!void {
 pub fn scrollEditByScrollbar() anyerror!void {
     const scrollbarLimitTop: u31 = lineHeight + scrollbarHeightHalf;
     const scrollbarLimitBottom: u31 = screenHeight - lineHeight - scrollbarHeightHalf;
-    const mouseY: u31 = @as(u31, @intCast(std.math.clamp(rl.getMouseY(), scrollbarLimitTop, scrollbarLimitBottom))) - scrollbarLimitTop;
+    const mouseY: u31 = @as(u31, @intCast(std.math.clamp(getCameraMouseY(), scrollbarLimitTop, scrollbarLimitBottom))) - scrollbarLimitTop;
     const scrollbarSpace: u31 = SCREEN_LINES * lineHeight - scrollbarHeight;
     const scrollbarPercentage: f32 = @as(f32, @floatFromInt(mouseY)) / @as(f32, @floatFromInt(scrollbarSpace));
     const scrolledLine: u31 = @as(u31, @intFromFloat(@as(f32, @floatFromInt(rom.lastLine)) * scrollbarPercentage));
@@ -1449,17 +1459,22 @@ pub fn processEditMouse() anyerror!void {
             return;
         }
 
-        const mouseX: u31 = @max(0, rl.getMouseX());
-        const mouseY: u31 = @max(0, rl.getMouseY());
-        const line: u31 = @divFloor(mouseY, lineHeight);
-        const column: u31 = @divFloor(mouseX, characterWidth);
+        const mouseX: i32 = getCameraMouseX();
+        const mouseY: i32 = getCameraMouseY();
+
+        if (mouseX < 0 or mouseX >= screenWidth or mouseY < 0 or mouseY >= screenHeight) {
+            return;
+        }
+
+        const line: u31 = @divFloor(@as(u31, @intCast(mouseY)), lineHeight);
+        const column: u31 = @divFloor(@as(u31, @intCast(mouseX)), characterWidth);
 
         viewArea: {
             if (line < 1 or line > SCREEN_LINES) {
                 break :viewArea;
             }
 
-            if (column == SCREEN_COLUMNS - 1) {
+            if (rl.isMouseButtonPressed(.left) and column == SCREEN_COLUMNS - 1) {
                 scrollbarClicked = true;
 
                 try scrollEditByScrollbar();
@@ -1636,14 +1651,13 @@ pub fn main() anyerror!u8 {
     lineBuffer = std.ArrayList(u8).init(gpa.allocator());
     defer lineBuffer.deinit();
 
-    rl.setConfigFlags(.{
-        .window_undecorated = true,
-    });
-
     rl.initWindow(814, 640, "Stardust");
     defer rl.closeWindow();
 
-    rl.setWindowIcon(try rl.loadImage("resources/icon.png"));
+    const icon: rl.Image = try rl.loadImage("resources/icon.png");
+    defer rl.unloadImage(icon);
+
+    rl.setWindowIcon(icon);
 
     rl.setExitKey(.null);
 
@@ -1652,9 +1666,25 @@ pub fn main() anyerror!u8 {
 
     rl.setTargetFPS(60);
 
+    camera = rl.Camera2D{
+        .offset = rl.Vector2.init(0, 0),
+        .target = rl.Vector2.init(0, 0),
+        .rotation = 0.0,
+        .zoom = 1.0,
+    };
+
     while (!rl.windowShouldClose() and !shouldClose) {
         rl.beginDrawing();
         defer rl.endDrawing();
+
+        const screenW = rl.getScreenWidth();
+        const screenH = rl.getScreenHeight();
+
+        camera.offset.x = @as(f32, @floatFromInt(screenW - screenWidth)) / 2;
+        camera.offset.y = @as(f32, @floatFromInt(screenH - screenHeight)) / 2;
+
+        rl.beginMode2D(camera);
+        defer rl.endMode2D();
 
         try processEditorShortcuts();
         try processEditorMouse();
