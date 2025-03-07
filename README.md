@@ -84,6 +84,14 @@ Each byte and symbol can only appear once
 
 ---
 
+### Relative search
+
+When searching, for example, for `DEEP`, it will match anything that keeps the same distance between the symbols, like: `ABBM`, `BCCN`, `CDDO`, `DEEP`, `EFFQ`, `FGGR` and so on
+
+This will allow you to find words inside the file and build the symbols' table to be able to read and modify it easily
+
+---
+
 ### Tutorial
 
 Comming soon
