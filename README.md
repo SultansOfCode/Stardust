@@ -111,9 +111,11 @@ There is no error handling at the moment. So, if you try to open a file that doe
 
 ### Thanks
 
-People from [Twitch](https://twitch.tv/SultansOfCode) for watching and supporting me while developing it
+People from [Twitch](https://twitch.tv/SultansOfCode) for watching me and supporting me while developing it
 
 People from #Zig channel at [Libera.Chat](https://libera.chat/) for helping me out with Zig doubts
+
+All of my [LivePix](https://livepix.gg/sultansofcode) donators
 
 ---
 
