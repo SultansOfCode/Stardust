@@ -120,5 +120,7 @@ People from #Zig channel at [Libera.Chat](https://libera.chat/) for helping me o
 ### Sources and licenses
 
 FiraCode - [Source](https://github.com/tonsky/FiraCode) - [OFL-1.1 license](https://github.com/tonsky/FiraCode?tab=OFL-1.1-1-ov-file)
+
 raylib - [Source](https://github.com/raysan5/raylib) - [Zlib license](https://github.com/raysan5/raylib?tab=Zlib-1-ov-file)
+
 Zig - [Source](https://github.com/ziglang/zig) - [MIT license](https://github.com/ziglang/zig?tab=MIT-1-ov-file)
