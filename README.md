@@ -1,12 +1,19 @@
 # Stardust
 
-Old school hexadecimal editor with extra functionalities commonly used in ROM hacking, such as symbols' table and relative searches
+Simple old school hexadecimal editor made in [Zig](https://ziglang.org/) using [raylib](https://raylib.com)
 
-Project created to experiment with [Zig](https://ziglang.org/) and [raylib](https://www.raylib.com/), while fulfilling some nostalgia from the early 2000's
+It is the first tool from a set created for ROM hacking (any file in reality). A common hexadecimal editor with extra functionalities commonly used in the scene, such as symbols' table and relative searches. The other two are:
+
+- [Startile](https://github.com/SultansOfCode/Startile): a simple tile editor
+- [Starpatch](https://github.com/SultansOfCode/Starpatch): a simple file patcher
+
+All these projects were developed to better learn Zig and raylib, while fulfilling some nostalgia from the early 2000's
 
 The name was pun intended with Ziggy Stardust from David Bowie
 
----
+<div style="text-align: center">
+  <img alt="Main screen" src="https://github.com/SultansOfCode/Stardust/blob/main/docs/main_screen.png?raw=true" />
+</div>
 
 ### Symbols' table
 
@@ -86,7 +93,7 @@ Each byte and symbol can only appear once
 
 ### Relative search
 
-When searching, for example, for `DEEP`, it will match anything that keeps the same distance between the symbols, like: `ABBM`, `BCCN`, `CDDO`, `DEEP`, `EFFQ`, `FGGR` and so on
+When searching, for example, for `DEEP`, it will match anything that keeps the same distance between the symbols, like: `ABBM`, `BCCN`, `CDDO`, `DEEP`, `EFFQ`, `FGGR` and so on, also `abbm`, `bccn`, `cddo`, `deep` `effq`, `fggr` and so on
 
 This will allow you to find words inside the file and build the symbols' table to be able to read and modify it easily
 
@@ -100,14 +107,14 @@ Comming soon
 
 ### Shortcuts
 
-`Left Ctrl + Home` - Go to the start of the file
-`Left Ctrl + End` - Go to the end of the file
-`Home` - Go to the start of the line
-`End` - Go to the end of the line
-`Tab` - Cycle between hexadecimal and character modes
-`Esc` - Menu
-`F3` - Find next (wraps around the end of the file)
-`Left Shift + F3` - Find previous (wraps around the start of the file)
+- Ctrl + Home: goes to the start of the file
+- Ctrl + End: goes to the end of the file
+- Home: goes to the start of the line
+- End: goes to the end of the line
+- Tab: cycles between hexadecimal and character modes
+- Esc: opens the menu
+- F3: finds next (wraps around the end of the file)
+- Shift + F3: finds previous (wraps around the start of the file)
 
 ---
 
